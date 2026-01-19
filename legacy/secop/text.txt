@@ -1,0 +1,178 @@
+Je comprends ta situation – c'est malheureusement très courant dans les PME. Tu as des briques de sécurité (Sophos XDR, Google Workspace) mais pas de vision centralisée ni de processus structurés.
+Voici comment je structurerais une approche pragmatique :
+Diagnostic rapide de ta situation
+Ce que tu as :
+
+Sophos XDR (détection endpoint/réseau)
+Google Workspace (identités, emails, stockage)
+
+Ce qui te manque :
+
+Gestion du cycle de vie des comptes (arrivées/départs)
+Centralisation des alertes et incidents
+Suivi des anomalies et traçabilité
+Processus formalisés
+
+
+Plan d'action par priorité
+1. Quick wins immédiats (cette semaine)
+Google Workspace – Reprendre le contrôle des comptes :
+
+Active les alertes admin dans la console Google (connexions suspectes, partages externes)
+Fais un export des comptes actifs et compare avec la liste RH des employés actuels
+Désactive les comptes des externes/partis (tu avais déjà travaillé sur une procédure de départ, non ?)
+
+Sophos – Exploite ce que tu as :
+
+Configure les alertes email pour les incidents critiques
+Vérifie que tous les postes sont bien enrôlés
+
+2. Structuration légère (ce mois-ci)
+Tu n'as pas besoin d'un SIEM complet pour commencer. Quelques options :
+BesoinSolution gratuite/low-costCentraliser les alertesGoogle Sheets/Notion + alertes email → tableau de suivi manuelSuivi des incidentsUn simple registre (je peux t'en faire un template)Gestion des comptesScript d'audit Google Workspace + process RHDashboard sécuritéLooker Studio connecté à Google Workspace
+3. Si tu veux aller plus loin
+
+Tines (gratuit jusqu'à un certain volume) pour automatiser les workflows
+Wazuh (open source) si tu veux un SIEM léger
+Sophos Central a des fonctions de reporting – tu les exploites ?
+
+
+Ce que je te propose concrètement
+Je peux t'aider à créer :
+
+Un registre de suivi des incidents/anomalies (Excel ou Notion)
+Une checklist d'audit Google Workspace actualisée pour ton contexte
+Un process de gestion des arrivées/départs avec les étapes Google + Sophos
+Un tableau de bord simple de ta posture sécurité
+
+Par quoi veux-tu commencer ? Et tu as combien d'utilisateurs environ dans ton périmètre ?en te bassant sur que du open source sachant que je dois revoir tous l'architecture infrastructure en cours je dois aussi gerer les actifs que ça soit les serveurs les patching et leurs mise a jours comment arriver a faire tout ça je dois tout revoir comme un audit complet je viens d'ariiver je fais a la fois admin sys reseaux et la securité moi suel fait moi une liste de tous les audits a prendre en compte11:02Je comprends – tu arrives sur un poste où tu cumules plusieurs casquettes et tu dois repartir quasi de zéro. Voici une liste structurée de tous les audits à mener, avec une approche méthodique.
+
+Checklist complète des audits infrastructure & sécurité
+Phase 1 : Cartographie (semaines 1-2)
+Audit d'inventaire des actifs
+
+Serveurs physiques et virtuels (localisation, OS, version, rôle)
+Postes de travail et laptops
+Équipements réseau (switches, routeurs, firewalls, AP Wi-Fi)
+Équipements périphériques (imprimantes, IoT, caméras)
+Services cloud et SaaS utilisés
+Licences logicielles
+
+Audit de la documentation existante
+
+Schémas réseau (existent-ils ? sont-ils à jour ?)
+Procédures opérationnelles
+Contrats fournisseurs et support
+Historique des incidents
+
+
+Phase 2 : Audits techniques (semaines 3-6)
+Audit réseau
+
+Topologie et segmentation (VLANs, DMZ)
+Règles firewall et ACLs
+Points d'accès Wi-Fi et sécurité (WPA3, 802.1X)
+Exposition externe (ports ouverts, services exposés)
+DNS, DHCP, NTP
+
+Audit des serveurs
+
+Versions OS et niveau de patch
+Services actifs et ports ouverts
+Configuration sécurité (hardening ANSSI/CIS)
+Gestion des logs
+Sauvegardes (existence, fréquence, tests de restauration)
+Antivirus/EDR déployé
+
+Audit Active Directory / Annuaire
+
+Structure OU et GPO
+Comptes à privilèges (Domain Admins, etc.)
+Comptes inactifs ou obsolètes
+Politique de mots de passe
+Kerberos, NTLM, LDAP signing
+Trusts inter-domaines
+
+Audit Google Workspace
+
+Comptes actifs vs liste RH
+Droits admin et délégations
+Partages externes et Drive
+Règles de transfert email
+Apps tierces connectées (OAuth)
+Paramètres de sécurité (2FA, alertes)
+
+Audit des postes de travail
+
+Niveau de patch OS
+Chiffrement disque (BitLocker, FileVault)
+EDR/Antivirus actif
+Droits admin locaux
+Applications installées
+
+
+Phase 3 : Audits sécurité spécifiques (semaines 5-8)
+Audit des vulnérabilités
+
+Scan interne (OpenVAS, Nessus Essentials)
+Scan externe du périmètre
+Analyse des résultats et priorisation
+
+Audit des accès et identités
+
+Matrice des droits par application/service
+Comptes de service et mots de passe
+Accès VPN et télétravail
+Accès prestataires et externes
+
+Audit des sauvegardes et PRA
+
+Politique de sauvegarde (3-2-1 ?)
+Tests de restauration effectués
+Procédures de reprise documentées
+RTO/RPO définis
+
+Audit de la gestion des logs
+
+Quels systèmes loguent ?
+Centralisation (syslog, SIEM)
+Rétention et archivage
+Alerting configuré
+
+Audit de conformité
+
+RGPD (registre des traitements, DPO, procédure violation)
+Obligations sectorielles éventuelles
+Politique de sécurité formalisée (PSSI)
+
+
+Phase 4 : Audits organisationnels (en parallèle)
+Audit des processus IT
+
+Gestion des changements
+Gestion des incidents
+Onboarding/offboarding utilisateurs
+Demandes d'accès
+
+Audit de la sensibilisation
+
+Formation sécurité des utilisateurs
+Tests de phishing réalisés
+Charte informatique signée
+
+
+Outils open source par type d'audit
+DomaineOutilsInventaireGLPI, Snipe-IT, NetboxScan vulnérabilitésOpenVAS (Greenbone), Nuclei, TrivyAudit ADPingCastle, Purple Knight, BloodHoundAudit réseauNmap, Wireshark, NetdiscoverAudit serveurs LinuxLynis, OpenSCAPAudit serveurs WindowsHardeningKitty, Windows Security BaselineCentralisation logsWazuh, Graylog, ELK StackGestion actifs/CMDBGLPI, NetboxTicketing/incidentsGLPI, Zammad, osTicket
+
+Livrables à produire
+À l'issue de ces audits, tu devrais avoir :
+
+Cartographie des actifs (inventaire complet)
+Schéma d'architecture réseau à jour
+Matrice des risques priorisée
+Plan de remédiation avec quick wins et projets moyen terme
+Tableau de bord sécurité avec indicateurs clés
+Feuille de route infrastructure sur 12 mois
+
+
+Tu veux que je te crée un template Excel ou Notion pour tracker tout ça ? Ou qu'on commence par un domaine spécifique — par exemple l'audit AD ou la cartographie des actifs ?

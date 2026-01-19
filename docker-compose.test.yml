@@ -1,0 +1,121 @@
+# Environnement de test isolé - ne partage pas les volumes avec dev/prod
+# Usage: docker-compose -f docker-compose.test.yml up -d
+
+services:
+  # PostgreSQL Test Database
+  db-test:
+    image: postgres:16-alpine
+    container_name: grc-db-test
+    environment:
+      POSTGRES_USER: grc_test
+      POSTGRES_PASSWORD: REMOVED_SECRET
+      POSTGRES_DB: grc_platform_test
+    ports:
+      - "5433:5432"  # Port différent pour éviter conflit
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grc_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    # Pas de volume persistant - DB reset à chaque restart
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  # Redis Test
+  redis-test:
+    image: redis:7-alpine
+    container_name: grc-redis-test
+    ports:
+      - "6380:6379"  # Port différent
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # Backend Test
+  backend-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: grc-backend-test
+    environment:
+      - DATABASE_URL=postgresql://grc_test:REMOVED_SECRET@db-test:5432/grc_platform_test
+      - REDIS_URL=redis://redis-test:6379/0
+      - SECRET_KEY=REMOVED_SECRET
+      - DEBUG=true
+      - CORS_ORIGINS=http://localhost:5174,http://localhost:3001
+      - ADMIN_EMAIL=test@grc-platform.local
+      - ADMIN_PASSWORD=REMOVED_SECRET
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8001:8000"  # Port différent
+    depends_on:
+      db-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend Test
+  frontend-test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: grc-frontend-test
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5174:5173"  # Port différent
+    environment:
+      - VITE_API_URL=http://localhost:8001
+    depends_on:
+      - backend-test
+    command: npm run dev -- --host
+
+  # Test Runner - exécute les tests puis s'arrête
+  test-runner:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: grc-test-runner
+    environment:
+      - DATABASE_URL=postgresql://grc_test:REMOVED_SECRET@db-test:5432/grc_platform_test
+      - REDIS_URL=redis://redis-test:6379/0
+      - SECRET_KEY=REMOVED_SECRET
+      - TESTING=true
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    command: pytest -v --tb=short
+    profiles:
+      - test  # Lancé uniquement avec --profile test
+
+  # Seed Data - peuple la DB avec des données de test
+  seed-data:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: grc-seed-data
+    environment:
+      - DATABASE_URL=postgresql://grc_test:REMOVED_SECRET@db-test:5432/grc_platform_test
+      - REDIS_URL=redis://redis-test:6379/0
+      - SECRET_KEY=REMOVED_SECRET
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db-test:
+        condition: service_healthy
+    command: python -m scripts.seed_test_data
+    profiles:
+      - seed  # Lancé uniquement avec --profile seed
+
+networks:
+  default:
+    name: grc-test-network

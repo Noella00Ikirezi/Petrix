@@ -1,0 +1,45 @@
+Metadata-Version: 2.4
+Name: secop-audit
+Version: 1.0.0
+Summary: Outil d'audit securite et infrastructure pour PME
+Author: SecOp Team
+License: GPL-3.0-or-later
+Keywords: security,audit,infrastructure,vulnerability,compliance
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: X11 Applications
+Classifier: Intended Audience :: System Administrators
+Classifier: License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Security
+Classifier: Topic :: System :: Systems Administration
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: sqlalchemy>=2.0
+Requires-Dist: pydantic>=2.0
+Requires-Dist: python-dotenv>=1.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: loguru>=0.7
+Requires-Dist: bcrypt>=4.1
+Requires-Dist: ttkbootstrap>=1.10
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: pillow>=10.0
+Requires-Dist: python-nmap>=0.7
+Requires-Dist: python-gvm>=24.0
+Requires-Dist: ldap3>=2.9
+Requires-Dist: ms-active-directory>=1.12
+Requires-Dist: google-api-python-client>=2.0
+Requires-Dist: google-auth>=2.0
+Requires-Dist: google-auth-oauthlib>=1.0
+Requires-Dist: reportlab>=4.0
+Requires-Dist: jinja2>=3.1
+Requires-Dist: schedule>=1.2
+Requires-Dist: netifaces>=0.11
+Requires-Dist: mac-vendor-lookup>=0.1.12
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0; extra == "dev"
+Requires-Dist: black>=24.0; extra == "dev"
+Requires-Dist: ruff>=0.2; extra == "dev"
+Requires-Dist: mypy>=1.8; extra == "dev"
