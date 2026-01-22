@@ -7,6 +7,8 @@ import AssetsPage from '@/pages/assets/AssetsPage';
 import VulnerabilitiesPage from '@/pages/vulnerabilities/VulnerabilitiesPage';
 import ScansPage from '@/pages/scans/ScansPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
+import { SMSIPage } from '@/pages/smsi/SMSIPage';
+import { ClientsPage } from '@/pages/clients/ClientsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -59,6 +61,22 @@ function App() {
         element={
           <ProtectedRoute>
             <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/smsi"
+        element={
+          <ProtectedRoute>
+            <SMSIPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/clients"
+        element={
+          <ProtectedRoute>
+            <ClientsPage />
           </ProtectedRoute>
         }
       />

@@ -141,3 +141,6 @@ export const dashboardApi = {
     return response.data;
   },
 };
+
+// Export api as alias for apiClient (for components that use api directly)
+export const api = apiClient;

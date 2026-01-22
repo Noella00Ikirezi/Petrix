@@ -37,8 +37,19 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.cors_origins.split(",")]
 
-    # AI
+    # AI - Anthropic
     anthropic_api_key: str = ""
+
+    # AI - Ollama (100% open-source, self-hosted)
+    OLLAMA_API_URL: str = "http://ollama:11434"
+    OLLAMA_MODEL: str = "qwen2:0.5b"  # Modèle ultra-léger 0.5B (~352MB), fonctionne avec très peu de RAM
+
+    # MinIO (S3-compatible storage)
+    MINIO_ENDPOINT: str = "minio:9000"
+    MINIO_ACCESS_KEY: str = "REMOVED_SECRET"
+    MINIO_SECRET_KEY: str = "REMOVED_SECRET"
+    MINIO_BUCKET: str = "grcplatform"
+    MINIO_SECURE: bool = False
 
     # Admin user (created on first run)
     admin_email: str = "admin@grc-platform.local"

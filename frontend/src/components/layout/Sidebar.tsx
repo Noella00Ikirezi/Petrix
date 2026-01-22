@@ -8,6 +8,8 @@ import {
   Users,
   Settings,
   ShieldCheck,
+  Building2,
+  Sparkles,
 } from 'lucide-react';
 
 const navigation = [
@@ -15,7 +17,8 @@ const navigation = [
   { name: 'Assets', href: '/assets', icon: Server },
   { name: 'Vulnerabilities', href: '/vulnerabilities', icon: Shield },
   { name: 'Scans', href: '/scans', icon: Scan },
-  { name: 'Compliance', href: '/compliance', icon: ShieldCheck, disabled: true },
+  { name: 'SMSI Generator', href: '/smsi', icon: Sparkles },
+  { name: 'Clients', href: '/clients', icon: Building2 },
   { name: 'Reports', href: '/reports', icon: FileText, disabled: true },
   { name: 'Users', href: '/users', icon: Users, disabled: true },
   { name: 'Settings', href: '/settings', icon: Settings },

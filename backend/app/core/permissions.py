@@ -69,6 +69,7 @@ class Permission(str, Enum):
 
     # System
     SYSTEM_ADMIN = "system:admin"
+    SYSTEM_SETTINGS = "system:settings"
 
 
 # Role to permissions mapping (hierarchical)
