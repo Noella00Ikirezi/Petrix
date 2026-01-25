@@ -14,6 +14,8 @@ import {
   Trash2,
   MoreVertical,
   Edit3,
+  Package,
+  ChevronDown,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import toast from 'react-hot-toast';
@@ -35,6 +37,7 @@ interface SMSIProject {
   industry_sector: string;
   selected_frameworks: string[];
   security_level: string;
+  pack_type: string;  // essential, standard, advanced
   completion_percentage: number;
   documents_generated: number;
   documents_total: number;
@@ -69,10 +72,19 @@ interface GenerationResult {
   };
 }
 
+// Pack information
+const PACK_INFO = {
+  essential: { name: 'Pack Essentiel', docs: '~20 documents', description: 'PME, démarrage rapide' },
+  standard: { name: 'Pack Standard', docs: '~50 documents', description: 'ISO 27001 + RGPD complet' },
+  advanced: { name: 'Pack Avancé', docs: '~100 documents', description: 'Multi-normes complet' },
+};
+
 export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const queryClient = useQueryClient();
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [selectedPack, setSelectedPack] = useState<string>('advanced');  // Default to advanced
+  const [showPackSelector, setShowPackSelector] = useState(false);
 
   // Fetch project details
   const { data: project, isLoading: projectLoading } = useQuery<SMSIProject>({
@@ -94,8 +106,8 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
 
   // Generate documents mutation
   const generateMutation = useMutation({
-    mutationFn: async () => {
-      const response = await api.post(`/smsi/projects/${projectId}/generate`);
+    mutationFn: async (packType: string) => {
+      const response = await api.post(`/smsi/projects/${projectId}/generate?pack_type=${packType}`);
       return response.data as GenerationResult;
     },
     onMutate: () => {
@@ -176,13 +188,16 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
 
   const getDocTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      policy: 'Politique',
-      procedure: 'Procédure',
-      register: 'Registre',
-      checklist: 'Checklist',
-      annex: 'Annexe',
-      template: 'Template',
-      schema: 'Schéma',
+      DIRECTIVE: 'Directive Stratégique',
+      POLICY: 'Politique',
+      PROCEDURE: 'Procédure',
+      REGISTER: 'Registre',
+      CHECKLIST: 'Checklist',
+      ANNEX: 'Annexe',
+      TEMPLATE: 'Template',
+      SCHEMA: 'Schéma',
+      REPORT: 'Rapport',
+      MATRIX: 'Matrice',
     };
     return labels[type] || type;
   };
@@ -248,9 +263,44 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Pack Selector */}
+          <div className="relative">
+            <button
+              onClick={() => setShowPackSelector(!showPackSelector)}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              <Package className="w-4 h-4" />
+              <span>{PACK_INFO[selectedPack as keyof typeof PACK_INFO]?.name || 'Pack Avancé'}</span>
+              <ChevronDown className="w-4 h-4" />
+            </button>
+
+            {showPackSelector && (
+              <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                {Object.entries(PACK_INFO).map(([key, info]) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setSelectedPack(key);
+                      setShowPackSelector(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                      selectedPack === key ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900 dark:text-white">{info.name}</span>
+                      <span className="text-sm text-blue-600 dark:text-blue-400 font-semibold">{info.docs}</span>
+                    </div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{info.description}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Generate Button */}
           <button
-            onClick={() => generateMutation.mutate()}
+            onClick={() => generateMutation.mutate(selectedPack)}
             disabled={isGenerating || project.status === 'generation'}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
               isGenerating || project.status === 'generation'
@@ -406,15 +456,40 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             <FileText className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600" />
             <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">Aucun document généré</h3>
             <p className="mt-2 text-gray-500 dark:text-gray-400">
-              Cliquez sur "Générer les documents" pour créer votre SMSI
+              Sélectionnez un pack et cliquez sur "Générer les documents" pour créer votre SMSI
             </p>
+
+            {/* Pack Selection Cards */}
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
+              {Object.entries(PACK_INFO).map(([key, info]) => (
+                <button
+                  key={key}
+                  onClick={() => setSelectedPack(key)}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    selectedPack === key
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-gray-900 dark:text-white">{info.name}</span>
+                    {selectedPack === key && (
+                      <CheckCircle className="w-5 h-5 text-blue-500" />
+                    )}
+                  </div>
+                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{info.docs}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{info.description}</p>
+                </button>
+              ))}
+            </div>
+
             <button
-              onClick={() => generateMutation.mutate()}
+              onClick={() => generateMutation.mutate(selectedPack)}
               disabled={isGenerating}
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 font-medium"
             >
-              <Sparkles className="w-4 h-4" />
-              Lancer la génération
+              <Sparkles className="w-5 h-5" />
+              Générer {PACK_INFO[selectedPack as keyof typeof PACK_INFO]?.docs || '~100 documents'}
             </button>
           </div>
         )}
@@ -427,10 +502,18 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
           <div>
             <p className="font-medium">Génération en cours...</p>
             <p className="text-sm text-blue-200">
-              Mistral AI génère vos {project.documents_total} documents
+              Mistral AI génère vos documents ({PACK_INFO[selectedPack as keyof typeof PACK_INFO]?.docs || '~100'})
             </p>
           </div>
         </div>
+      )}
+
+      {/* Click outside to close pack selector */}
+      {showPackSelector && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setShowPackSelector(false)}
+        />
       )}
     </div>
   );

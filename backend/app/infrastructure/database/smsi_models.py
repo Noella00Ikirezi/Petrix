@@ -45,15 +45,16 @@ class ComplianceFramework(str, PyEnum):
 
 class DocumentType(str, PyEnum):
     """Types of SMSI documents."""
-    POLICY = "policy"
-    PROCEDURE = "procedure"
-    REGISTER = "register"
-    ANNEX = "annex"
-    SCHEMA = "schema"
-    TEMPLATE = "template"
-    CHECKLIST = "checklist"
-    REPORT = "report"
-    MATRIX = "matrix"
+    DIRECTIVE = "DIRECTIVE"  # Directives stratégiques (format PSSIG)
+    POLICY = "POLICY"
+    PROCEDURE = "PROCEDURE"
+    REGISTER = "REGISTER"
+    ANNEX = "ANNEX"
+    SCHEMA = "SCHEMA"
+    TEMPLATE = "TEMPLATE"
+    CHECKLIST = "CHECKLIST"
+    REPORT = "REPORT"
+    MATRIX = "MATRIX"
 
 
 class DocumentStatus(str, PyEnum):
@@ -357,6 +358,7 @@ class SMSIProject(Base):
     security_level: Mapped[SecurityLevel] = mapped_column(
         Enum(SecurityLevel), default=SecurityLevel.N1_STANDARD
     )
+    pack_type: Mapped[str] = mapped_column(String(20), default="standard")  # essential, standard, advanced
 
     # Context data (from QCM)
     context_data: Mapped[dict] = mapped_column(JSONB, default=dict)

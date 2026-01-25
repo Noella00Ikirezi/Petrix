@@ -1,5 +1,6 @@
 """API endpoints for SMSI Generator module."""
 import uuid
+import traceback
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
@@ -8,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
+from loguru import logger
 import io
 
 from app.infrastructure.database.connection import get_async_db
@@ -119,6 +121,7 @@ class ProjectCreate(BaseModel):
     industry_sector: Optional[str] = None
     selected_frameworks: List[str] = Field(default_factory=list)
     security_level: str = "n1_standard"
+    pack_type: str = Field(default="advanced", pattern="^(essential|standard|advanced)$")
 
 
 class ProjectResponse(BaseModel):
@@ -132,6 +135,7 @@ class ProjectResponse(BaseModel):
     industry_sector: Optional[str]
     selected_frameworks: List[str]
     security_level: str
+    pack_type: str
     completion_percentage: int
     documents_generated: int
     documents_total: int
@@ -328,6 +332,7 @@ async def create_project(
         industry_sector=project_data.industry_sector,
         selected_frameworks=project_data.selected_frameworks,
         security_level=security_level,
+        pack_type=project_data.pack_type,
         documents_total=total_templates
     )
 
@@ -493,7 +498,7 @@ async def get_project_responses(
 @router.post("/projects/{project_id}/generate")
 async def generate_documents(
     project_id: uuid.UUID,
-    pack_type: str = Query("standard", pattern="^(essential|standard|advanced)$"),
+    pack_type: str = Query(None, pattern="^(essential|standard|advanced)$"),
     use_ai: bool = Query(False, description="Use AI customization (slower)"),
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_active_user)
@@ -502,7 +507,8 @@ async def generate_documents(
 
     Args:
         project_id: Project UUID
-        pack_type: Document pack to use (essential, standard, advanced)
+        pack_type: Document pack to use (essential, standard, advanced).
+                   If not provided, uses the project's configured pack_type.
         use_ai: Whether to use AI for customization (slower but more personalized)
     """
     project = await db.get(SMSIProject, project_id)
@@ -511,17 +517,22 @@ async def generate_documents(
     if project.created_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Use project's pack_type if not specified in query
+    effective_pack_type = pack_type or getattr(project, 'pack_type', 'standard') or 'standard'
+
     # Use fast generator with pre-written templates
     generator = get_fast_generator(db)
 
     try:
         result = await generator.generate_project_documents(
             project_id=project_id,
-            pack_type=pack_type,
+            pack_type=effective_pack_type,
             use_ai_customization=use_ai
         )
         return result
     except Exception as e:
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        logger.error(f"Generation error for project {project_id}: {error_detail}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -548,6 +559,31 @@ async def list_project_documents(
         stmt = stmt.where(GeneratedDocument.document_type == document_type)
 
     stmt = stmt.order_by(GeneratedDocument.created_at.desc())
+    result = await db.execute(stmt)
+
+    return result.scalars().all()
+
+
+@router.get("/documents", response_model=List[GeneratedDocumentResponse])
+async def list_all_documents(
+    status: Optional[str] = None,
+    document_type: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """List all documents for the current user across all projects."""
+    stmt = select(GeneratedDocument).join(
+        SMSIProject, GeneratedDocument.project_id == SMSIProject.id
+    ).where(SMSIProject.created_by_id == current_user.id)
+
+    if status:
+        stmt = stmt.where(GeneratedDocument.status == status)
+    if document_type:
+        stmt = stmt.where(GeneratedDocument.document_type == document_type)
+
+    stmt = stmt.order_by(GeneratedDocument.created_at.desc()).limit(limit).offset(offset)
     result = await db.execute(stmt)
 
     return result.scalars().all()
@@ -856,7 +892,11 @@ async def export_document(
     if project.created_by_id != current_user.id and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    result = await export_service.export_document(doc, request.format)
+    result = await export_service.export_document(
+        doc,
+        request.format,
+        organization_name=project.organization_name
+    )
 
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result.get("error", "Export failed"))
@@ -910,7 +950,11 @@ async def export_all_documents(
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         for doc in documents:
-            export_result = await export_service.export_document(doc, format)
+            export_result = await export_service.export_document(
+                doc,
+                format,
+                organization_name=project.organization_name
+            )
             if export_result["success"]:
                 zip_file.writestr(export_result["filename"], export_result["content"])
 

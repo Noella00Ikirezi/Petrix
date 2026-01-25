@@ -31,6 +31,14 @@ from app.application.smsi.document_packs import (
     get_pack_proposal,
     filter_documents_by_frameworks,
 )
+from app.application.smsi.pssig_templates import (
+    PSSIG_TEMPLATES,
+    render_pssig_template,
+)
+from app.application.smsi.templates_complete import (
+    TEMPLATES_COMPLETE,
+    fill_complete_template,
+)
 from app.application.smsi.ai_service import ollama_service
 
 
@@ -164,14 +172,30 @@ class FastDocumentGenerator:
 
         logger.info(f"Generating document: {code} - {doc_spec['name']}")
 
-        # Check if we have a pre-written template
+        # Check if we have a PSSIG template (professional directives)
+        pssig_template = PSSIG_TEMPLATES.get(code)
+        # Check if we have a standard pre-written template
         template = TEMPLATES.get(code)
+        # Check if we have a complete template (for advanced pack)
+        complete_template = TEMPLATES_COMPLETE.get(code)
         tokens_used = 0
+        template_source = None
 
-        if template:
+        if pssig_template:
+            # Use PSSIG professional template (highest quality)
+            content = render_pssig_template(code, context)
+            template_source = "pssig-template"
+            logger.info(f"  → Using PSSIG professional template (directive stratégique)")
+        elif template:
             # Use pre-written template with variable substitution
             content = fill_template(code, context)
+            template_source = "template"
             logger.info(f"  → Using pre-written template (fast mode)")
+        elif complete_template:
+            # Use complete template from templates_complete.py
+            content = fill_complete_template(code, context)
+            template_source = "template-complete"
+            logger.info(f"  → Using complete template library")
         else:
             # Fallback: Generate with AI (slower)
             logger.info(f"  → No template found, using AI generation")
@@ -179,9 +203,11 @@ class FastDocumentGenerator:
                 content, tokens_used = await self._generate_with_ai(
                     doc_spec, context
                 )
+                template_source = "ai-generated"
             else:
                 # Create a basic placeholder document
                 content = self._create_placeholder_document(doc_spec, context)
+                template_source = "placeholder"
 
         generation_time = time.time() - start_time
 
@@ -196,7 +222,7 @@ class FastDocumentGenerator:
             content_markdown=content,
             content_html=self._markdown_to_html(content),
             content_json={"sections": self._extract_sections(content)},
-            ai_model_used="template" if template else "qwen2:0.5b",
+            ai_model_used=template_source or "unknown",
             ai_prompt_used="Template-based generation",
             ai_tokens_input=0,
             ai_tokens_output=tokens_used,

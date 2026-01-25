@@ -23,6 +23,7 @@ from app.infrastructure.database.smsi_models import (
     DocumentVersion,
     DocumentComment,
     DocumentStatus,
+    SMSIProject,
 )
 from app.infrastructure.database.models import User
 
@@ -78,6 +79,10 @@ class DocumentService:
         if not doc:
             raise ValueError(f"Document {document_id} not found")
 
+        # Get project info for organization name
+        project = await self.db.get(SMSIProject, doc.project_id)
+        organization_name = project.organization_name if project else "Organisation"
+
         # Get owner info
         owner_name = None
         if doc.owner_id:
@@ -111,6 +116,7 @@ class DocumentService:
             "current_version_number": doc.current_version_number or 1,
             "content_markdown": doc.content_markdown,
             "content_html": doc.content_html,
+            "organization_name": organization_name,
             "owner": owner_name,
             "is_locked": is_locked,
             "locked_by": locked_by_name,

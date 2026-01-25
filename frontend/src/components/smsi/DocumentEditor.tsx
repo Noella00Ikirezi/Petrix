@@ -22,8 +22,9 @@ import {
 } from 'lucide-react';
 import { api } from '../../api/client';
 import toast from 'react-hot-toast';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { DocumentViewer } from './DocumentViewer';
+import { RichTextEditor } from './RichTextEditor';
+import { markdownToHtml, htmlToMarkdown } from '../../utils/markdownConverter';
 
 interface DocumentEditorProps {
   documentId: string;
@@ -40,6 +41,7 @@ interface DocumentData {
   current_version_number: number;
   content_markdown: string;
   content_html: string;
+  organization_name: string;
   owner: string | null;
   is_locked: boolean;
   locked_by: string | null;
@@ -119,7 +121,9 @@ export function DocumentEditor({ documentId, onBack }: DocumentEditorProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['document-view', documentId] });
       setIsEditing(true);
-      setEditedContent(document?.content_markdown || '');
+      // Convert Markdown to HTML for the WYSIWYG editor
+      const htmlContent = markdownToHtml(document?.content_markdown || '');
+      setEditedContent(htmlContent);
       toast.success('Document verrouillé pour édition');
     },
     onError: (error: any) => {
@@ -142,8 +146,10 @@ export function DocumentEditor({ documentId, onBack }: DocumentEditorProps) {
   // Update mutation
   const updateMutation = useMutation({
     mutationFn: async () => {
+      // Convert HTML from editor back to Markdown for storage
+      const markdownContent = htmlToMarkdown(editedContent);
       await api.put(`/smsi/documents/${documentId}`, {
-        content_markdown: editedContent,
+        content_markdown: markdownContent,
         change_summary: changeSummary || 'Modification du document',
       });
     },
@@ -251,7 +257,9 @@ export function DocumentEditor({ documentId, onBack }: DocumentEditorProps) {
 
   const handleCancelEdit = () => {
     unlockMutation.mutate();
-    setEditedContent(document?.content_markdown || '');
+    // Reset to original markdown converted to HTML
+    const htmlContent = markdownToHtml(document?.content_markdown || '');
+    setEditedContent(htmlContent);
   };
 
   const handleSave = () => {
@@ -435,16 +443,24 @@ export function DocumentEditor({ documentId, onBack }: DocumentEditorProps) {
         {/* Document content */}
         <div className={`flex-1 overflow-auto p-6 ${showHistory || showComments ? 'w-2/3' : 'w-full'}`}>
           {isEditing ? (
-            <textarea
-              value={editedContent}
-              onChange={(e) => setEditedContent(e.target.value)}
-              className="w-full h-full min-h-[600px] p-4 font-mono text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            <RichTextEditor
+              content={editedContent}
+              onChange={setEditedContent}
+              documentType={document.document_type}
+              placeholder="Commencez à éditer le document..."
             />
           ) : (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-8 prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {document.content_markdown}
-              </ReactMarkdown>
+            <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <DocumentViewer
+                content={document.content_markdown}
+                documentCode={document.code}
+                documentName={document.name}
+                documentType={document.document_type}
+                version={document.version}
+                organization={document.organization_name}
+                status={document.status}
+                createdAt={document.created_at}
+              />
             </div>
           )}
         </div>
