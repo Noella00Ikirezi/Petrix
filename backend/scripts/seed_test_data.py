@@ -29,10 +29,10 @@ def create_users(db: Session) -> dict[str, User]:
     users = {}
 
     user_data = [
-        ("admin@grc-platform.local", "Admin", "User", UserRole.ADMIN, "GrcAdmin@2024!Secure"),
-        ("auditor@grc-platform.local", "Alice", "Auditor", UserRole.AUDITOR, "Auditor@2024!"),
-        ("analyst@grc-platform.local", "Bob", "Analyst", UserRole.ANALYST, "Analyst@2024!"),
-        ("viewer@grc-platform.local", "Charlie", "Viewer", UserRole.VIEWER, "Viewer@2024!"),
+        ("admin@grc-platform.local", "Admin", "User", UserRole.ADMIN, "REMOVED_SECRET"),
+        ("auditor@grc-platform.local", "Alice", "Auditor", UserRole.AUDITOR, "REMOVED_SECRET"),
+        ("analyst@grc-platform.local", "Bob", "Analyst", UserRole.ANALYST, "REMOVED_SECRET"),
+        ("viewer@grc-platform.local", "Charlie", "Viewer", UserRole.VIEWER, "REMOVED_SECRET"),
     ]
 
     for email, first_name, last_name, role, password in user_data:
@@ -319,10 +319,10 @@ def seed_database():
         print(f"   - Vulnerabilities: {len(vulns)}")
         print(f"   - Scans: {len(scans)}")
         print("\n🔑 Test Credentials:")
-        print("   Admin:   admin@grc-platform.local / GrcAdmin@2024!Secure")
-        print("   Auditor: auditor@grc-platform.local / Auditor@2024!")
-        print("   Analyst: analyst@grc-platform.local / Analyst@2024!")
-        print("   Viewer:  viewer@grc-platform.local / Viewer@2024!")
+        print("   Admin:   admin@grc-platform.local / REMOVED_SECRET")
+        print("   Auditor: auditor@grc-platform.local / REMOVED_SECRET")
+        print("   Analyst: analyst@grc-platform.local / REMOVED_SECRET")
+        print("   Viewer:  viewer@grc-platform.local / REMOVED_SECRET")
 
     finally:
         db.close()

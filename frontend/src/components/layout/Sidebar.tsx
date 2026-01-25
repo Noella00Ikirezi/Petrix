@@ -20,7 +20,7 @@ const navigation = [
   { name: 'SMSI Generator', href: '/smsi', icon: Sparkles },
   { name: 'Clients', href: '/clients', icon: Building2 },
   { name: 'Reports', href: '/reports', icon: FileText, disabled: true },
-  { name: 'Users', href: '/users', icon: Users, disabled: true },
+  { name: 'Users', href: '/users', icon: Users },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

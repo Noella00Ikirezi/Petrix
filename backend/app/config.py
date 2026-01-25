@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # Admin user (created on first run)
     admin_email: str = "admin@grc-platform.local"
-    admin_password: str = "GrcAdmin@2024!Secure"
+    admin_password: str = "REMOVED_SECRET"
 
 
 @lru_cache

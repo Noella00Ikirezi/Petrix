@@ -7,6 +7,7 @@ import AssetsPage from '@/pages/assets/AssetsPage';
 import VulnerabilitiesPage from '@/pages/vulnerabilities/VulnerabilitiesPage';
 import ScansPage from '@/pages/scans/ScansPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
+import UsersPage from '@/pages/users/UsersPage';
 import { SMSIPage } from '@/pages/smsi/SMSIPage';
 import { ClientsPage } from '@/pages/clients/ClientsPage';
 
@@ -77,6 +78,14 @@ function App() {
         element={
           <ProtectedRoute>
             <ClientsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/users"
+        element={
+          <ProtectedRoute>
+            <UsersPage />
           </ProtectedRoute>
         }
       />
