@@ -20,13 +20,13 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # Database
-    database_url: str = "postgresql://grc:REMOVED_SECRET@localhost:5432/grc_platform"
+    database_url: str = ""
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
     # Security
-    secret_key: str = "REMOVED_SECRET"
+    secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
@@ -46,14 +46,14 @@ class Settings(BaseSettings):
 
     # MinIO (S3-compatible storage)
     MINIO_ENDPOINT: str = "minio:9000"
-    MINIO_ACCESS_KEY: str = "REMOVED_SECRET"
-    MINIO_SECRET_KEY: str = "REMOVED_SECRET"
+    MINIO_ACCESS_KEY: str = ""
+    MINIO_SECRET_KEY: str = ""
     MINIO_BUCKET: str = "grcplatform"
     MINIO_SECURE: bool = False
 
     # Admin user (created on first run)
     admin_email: str = "admin@grc-platform.local"
-    admin_password: str = "REMOVED_SECRET"
+    admin_password: str = ""
 
 
 @lru_cache

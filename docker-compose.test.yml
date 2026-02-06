@@ -7,13 +7,13 @@ services:
     image: postgres:16-alpine
     container_name: grc-db-test
     environment:
-      POSTGRES_USER: grc_test
-      POSTGRES_PASSWORD: REMOVED_SECRET
-      POSTGRES_DB: grc_platform_test
+      POSTGRES_USER: ${TEST_POSTGRES_USER:-grc_test}
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${TEST_POSTGRES_DB:-grc_platform_test}
     ports:
       - "5433:5432"  # Port différent pour éviter conflit
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U grc_test"]
+      test: ["CMD-SHELL", "pg_isready -U ${TEST_POSTGRES_USER:-grc_test}"]
       interval: 3s
       timeout: 3s
       retries: 5
@@ -40,13 +40,13 @@ services:
       dockerfile: Dockerfile
     container_name: grc-backend-test
     environment:
-      - DATABASE_URL=postgresql://grc_test:REMOVED_SECRET@db-test:5432/grc_platform_test
+      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-grc_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-grc_platform_test}
       - REDIS_URL=redis://redis-test:6379/0
-      - SECRET_KEY=REMOVED_SECRET
+      - SECRET_KEY=${TEST_SECRET_KEY:-changeme}
       - DEBUG=true
       - CORS_ORIGINS=http://localhost:5174,http://localhost:3001
       - ADMIN_EMAIL=test@grc-platform.local
-      - ADMIN_PASSWORD=REMOVED_SECRET
+      - ADMIN_PASSWORD=${TEST_ADMIN_PASSWORD}
     volumes:
       - ./backend:/app
     ports:
@@ -82,9 +82,9 @@ services:
       dockerfile: Dockerfile
     container_name: grc-test-runner
     environment:
-      - DATABASE_URL=postgresql://grc_test:REMOVED_SECRET@db-test:5432/grc_platform_test
+      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-grc_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-grc_platform_test}
       - REDIS_URL=redis://redis-test:6379/0
-      - SECRET_KEY=REMOVED_SECRET
+      - SECRET_KEY=${TEST_SECRET_KEY:-changeme}
       - TESTING=true
     volumes:
       - ./backend:/app
@@ -104,9 +104,9 @@ services:
       dockerfile: Dockerfile
     container_name: grc-seed-data
     environment:
-      - DATABASE_URL=postgresql://grc_test:REMOVED_SECRET@db-test:5432/grc_platform_test
+      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-grc_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-grc_platform_test}
       - REDIS_URL=redis://redis-test:6379/0
-      - SECRET_KEY=REMOVED_SECRET
+      - SECRET_KEY=${TEST_SECRET_KEY:-changeme}
     volumes:
       - ./backend:/app
     depends_on:

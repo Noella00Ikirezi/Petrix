@@ -2,19 +2,25 @@
 """Script to add 'directive' value to PostgreSQL documenttype enum."""
 
 import asyncio
+import os
+
 import asyncpg
 
 async def add_directive_to_enum():
     """Add 'directive' to the documenttype enum in PostgreSQL."""
 
-    # Connection parameters - adjust as needed
-    conn = await asyncpg.connect(
-        user='grc',
-        password='REMOVED_SECRET',
-        database='grc_platform',
-        host='localhost',
-        port=5432
-    )
+    # Connection via DATABASE_URL or individual env vars
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        conn = await asyncpg.connect(database_url)
+    else:
+        conn = await asyncpg.connect(
+            user=os.environ.get('POSTGRES_USER', 'grc'),
+            password=os.environ.get('POSTGRES_PASSWORD', ''),
+            database=os.environ.get('POSTGRES_DB', 'grc_platform'),
+            host=os.environ.get('POSTGRES_HOST', 'localhost'),
+            port=int(os.environ.get('POSTGRES_PORT', '5432'))
+        )
 
     try:
         # Check if 'directive' already exists in the enum

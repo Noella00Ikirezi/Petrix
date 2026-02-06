@@ -1,4 +1,5 @@
 """Seed test data for development and testing environments."""
+import os
 import random
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -29,10 +30,10 @@ def create_users(db: Session) -> dict[str, User]:
     users = {}
 
     user_data = [
-        ("admin@grc-platform.local", "Admin", "User", UserRole.ADMIN, "REMOVED_SECRET"),
-        ("auditor@grc-platform.local", "Alice", "Auditor", UserRole.AUDITOR, "REMOVED_SECRET"),
-        ("analyst@grc-platform.local", "Bob", "Analyst", UserRole.ANALYST, "REMOVED_SECRET"),
-        ("viewer@grc-platform.local", "Charlie", "Viewer", UserRole.VIEWER, "REMOVED_SECRET"),
+        ("admin@grc-platform.local", "Admin", "User", UserRole.ADMIN, os.environ.get("ADMIN_PASSWORD", "changeme")),
+        ("auditor@grc-platform.local", "Alice", "Auditor", UserRole.AUDITOR, os.environ.get("AUDITOR_PASSWORD", "changeme")),
+        ("analyst@grc-platform.local", "Bob", "Analyst", UserRole.ANALYST, os.environ.get("ANALYST_PASSWORD", "changeme")),
+        ("viewer@grc-platform.local", "Charlie", "Viewer", UserRole.VIEWER, os.environ.get("VIEWER_PASSWORD", "changeme")),
     ]
 
     for email, first_name, last_name, role, password in user_data:
@@ -319,10 +320,10 @@ def seed_database():
         print(f"   - Vulnerabilities: {len(vulns)}")
         print(f"   - Scans: {len(scans)}")
         print("\n🔑 Test Credentials:")
-        print("   Admin:   admin@grc-platform.local / REMOVED_SECRET")
-        print("   Auditor: auditor@grc-platform.local / REMOVED_SECRET")
-        print("   Analyst: analyst@grc-platform.local / REMOVED_SECRET")
-        print("   Viewer:  viewer@grc-platform.local / REMOVED_SECRET")
+        print("   Admin:   admin@grc-platform.local / <set via ADMIN_PASSWORD env var>")
+        print("   Auditor: auditor@grc-platform.local / <set via AUDITOR_PASSWORD env var>")
+        print("   Analyst: analyst@grc-platform.local / <set via ANALYST_PASSWORD env var>")
+        print("   Viewer:  viewer@grc-platform.local / <set via VIEWER_PASSWORD env var>")
 
     finally:
         db.close()
