@@ -71,6 +71,13 @@ class Permission(str, Enum):
     SYSTEM_ADMIN = "system:admin"
     SYSTEM_SETTINGS = "system:settings"
 
+    # Pentest
+    PENTEST_VIEW = "pentest:view"
+    PENTEST_EXECUTE = "pentest:execute"
+    PENTEST_CONFIGURE = "pentest:configure"
+    PENTEST_DELETE = "pentest:delete"
+    PENTEST_REPORT_EXPORT = "pentest:report_export"
+
 
 # Role to permissions mapping (hierarchical)
 ROLE_PERMISSIONS: dict[UserRole, Set[Permission]] = {
@@ -81,6 +88,7 @@ ROLE_PERMISSIONS: dict[UserRole, Set[Permission]] = {
         Permission.COMPLIANCE_VIEW,
         Permission.SUPPLIER_VIEW,
         Permission.REPORT_VIEW,
+        Permission.PENTEST_VIEW,
     },
     UserRole.ANALYST: {
         # Viewer permissions
@@ -102,6 +110,9 @@ ROLE_PERMISSIONS: dict[UserRole, Set[Permission]] = {
         Permission.SCAN_EXECUTE,
         Permission.REPORT_CREATE,
         Permission.REPORT_EXPORT,
+        Permission.PENTEST_VIEW,
+        Permission.PENTEST_EXECUTE,
+        Permission.PENTEST_REPORT_EXPORT,
     },
     UserRole.AUDITOR: {
         # Analyst permissions
@@ -135,6 +146,10 @@ ROLE_PERMISSIONS: dict[UserRole, Set[Permission]] = {
         # Auditor additions
         Permission.AUDIT_LOG_VIEW,
         Permission.USER_VIEW,
+        Permission.PENTEST_VIEW,
+        Permission.PENTEST_EXECUTE,
+        Permission.PENTEST_CONFIGURE,
+        Permission.PENTEST_REPORT_EXPORT,
     },
     UserRole.ADMIN: {
         # All permissions

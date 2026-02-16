@@ -1,4 +1,4 @@
-# GRC Platform - Makefile
+# Petrix - Makefile
 # ========================
 # Commandes pratiques pour gérer les environnements
 
@@ -13,7 +13,7 @@ RESET := \033[0m
 
 help: ## Affiche cette aide
 	@echo ""
-	@echo "$(CYAN)GRC Platform - Commandes disponibles$(RESET)"
+	@echo "$(CYAN)Petrix - Commandes disponibles$(RESET)"
 	@echo "======================================"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "$(GREEN)%-20s$(RESET) %s\n", $$1, $$2}'
 	@echo ""
@@ -109,10 +109,10 @@ shell-backend-test: ## Ouvre un shell dans le container backend (test)
 	docker-compose -f docker-compose.test.yml exec backend-test bash
 
 shell-db: ## Ouvre psql dans le container DB (dev)
-	docker-compose exec db psql -U grc -d grc_platform
+	docker-compose exec db psql -U petrix -d petrix
 
 shell-db-test: ## Ouvre psql dans le container DB (test)
-	docker-compose -f docker-compose.test.yml exec db-test psql -U grc_test -d grc_platform_test
+	docker-compose -f docker-compose.test.yml exec db-test psql -U petrix_test -d petrix_test
 
 # ====================
 # NETTOYAGE

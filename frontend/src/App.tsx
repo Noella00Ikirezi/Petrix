@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import Layout from '@/components/layout/Layout';
 import LoginPage from '@/pages/auth/LoginPage';
+import HomePage from '@/pages/HomePage';
 import DashboardPage from '@/pages/DashboardPage';
 import AssetsPage from '@/pages/assets/AssetsPage';
 import VulnerabilitiesPage from '@/pages/vulnerabilities/VulnerabilitiesPage';
@@ -10,6 +11,9 @@ import SettingsPage from '@/pages/settings/SettingsPage';
 import UsersPage from '@/pages/users/UsersPage';
 import { SMSIPage } from '@/pages/smsi/SMSIPage';
 import { ClientsPage } from '@/pages/clients/ClientsPage';
+import PentestPage from '@/pages/pentest/PentestPage';
+import PentestSessionDetail from '@/pages/pentest/PentestSessionDetail';
+import AuditLogsPage from '@/pages/audit/AuditLogsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -25,8 +29,9 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/" element={<HomePage />} />
       <Route
-        path="/"
+        path="/dashboard"
         element={
           <ProtectedRoute>
             <DashboardPage />
@@ -54,6 +59,22 @@ function App() {
         element={
           <ProtectedRoute>
             <ScansPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/pentest"
+        element={
+          <ProtectedRoute>
+            <PentestPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/pentest/session/:id"
+        element={
+          <ProtectedRoute>
+            <PentestSessionDetail />
           </ProtectedRoute>
         }
       />
@@ -86,6 +107,14 @@ function App() {
         element={
           <ProtectedRoute>
             <UsersPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/audit-logs"
+        element={
+          <ProtectedRoute>
+            <AuditLogsPage />
           </ProtectedRoute>
         }
       />

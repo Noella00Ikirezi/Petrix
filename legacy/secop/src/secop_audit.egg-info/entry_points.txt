@@ -1,2 +1,0 @@
-[console_scripts]
-secop = secop.main:main

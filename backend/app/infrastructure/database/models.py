@@ -1,4 +1,4 @@
-"""SQLAlchemy models for GRC Platform (unified from SecOP + GRC-Agent)."""
+"""SQLAlchemy models for Petrix (unified from SecOP + Petrix Agent)."""
 import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
@@ -136,7 +136,7 @@ class Asset(Base):
         Enum(Severity), default=Severity.MEDIUM
     )
 
-    # Network info (from GRC-Agent HostInfo)
+    # Network info (from Petrix Agent HostInfo)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), index=True, nullable=True)
     mac_address: Mapped[Optional[str]] = mapped_column(String(17), nullable=True)
     hostname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -175,7 +175,7 @@ class Asset(Base):
 
 
 class Vulnerability(Base):
-    """Vulnerability/Finding model (unified from SecOP + GRC-Agent)."""
+    """Vulnerability/Finding model (unified from SecOP + Petrix Agent)."""
     __tablename__ = "vulnerabilities"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -197,7 +197,7 @@ class Vulnerability(Base):
         Enum(VulnStatus), default=VulnStatus.OPEN
     )
 
-    # CVSS (from GRC-Agent)
+    # CVSS (from Petrix Agent)
     cvss_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     cvss_vector: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     cve_ids: Mapped[List[str]] = mapped_column(JSONB, default=list)
@@ -246,7 +246,7 @@ class Vulnerability(Base):
 
 
 class Scan(Base):
-    """Scan/Audit campaign model (from GRC-Agent)."""
+    """Scan/Audit campaign model (from Petrix Agent)."""
     __tablename__ = "scans"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -270,7 +270,7 @@ class Scan(Base):
     # Configuration
     config: Mapped[dict] = mapped_column(JSONB, default=dict)
 
-    # Results (from GRC-Agent AuditScore)
+    # Results (from Petrix Agent AuditScore)
     score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     grade: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
     risk_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)

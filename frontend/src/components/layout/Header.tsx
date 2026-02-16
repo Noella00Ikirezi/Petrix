@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Moon, Sun, Bell, LogOut, User } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { authApi } from '@/api/client';
 
 export default function Header() {
   const [isDark, setIsDark] = useState(false);
@@ -23,7 +24,8 @@ export default function Header() {
     document.documentElement.classList.toggle('dark', newValue);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await authApi.logout();
     logout();
     navigate('/login');
   };

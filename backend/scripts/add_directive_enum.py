@@ -15,9 +15,9 @@ async def add_directive_to_enum():
         conn = await asyncpg.connect(database_url)
     else:
         conn = await asyncpg.connect(
-            user=os.environ.get('POSTGRES_USER', 'grc'),
+            user=os.environ.get('POSTGRES_USER', 'petrix'),
             password=os.environ.get('POSTGRES_PASSWORD', ''),
-            database=os.environ.get('POSTGRES_DB', 'grc_platform'),
+            database=os.environ.get('POSTGRES_DB', 'petrix'),
             host=os.environ.get('POSTGRES_HOST', 'localhost'),
             port=int(os.environ.get('POSTGRES_PORT', '5432'))
         )

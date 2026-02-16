@@ -136,8 +136,8 @@ class LicenseManager:
             hashlib.sha256
         ).hexdigest()[:16]
 
-        # Format: GRC-{signature}-{encrypted_base64}
-        license_key = f"GRC-{signature}-{encrypted.decode()}"
+        # Format: PTX-{signature}-{encrypted_base64}
+        license_key = f"PTX-{signature}-{encrypted.decode()}"
         return license_key
 
     @classmethod
@@ -149,7 +149,7 @@ class LicenseManager:
         """
         try:
             # Parse license key format
-            if not license_key.startswith("GRC-"):
+            if not license_key.startswith("PTX-"):
                 return None
 
             parts = license_key.split("-", 2)

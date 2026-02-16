@@ -11,9 +11,12 @@ interface User {
 
 interface AuthState {
   token: string | null;
+  refreshToken: string | null;
   user: User | null;
   isAuthenticated: boolean;
-  setAuth: (token: string, user: User) => void;
+  setAuth: (token: string, refreshToken: string, user: User) => void;
+  setToken: (token: string) => void;
+  setRefreshToken: (refreshToken: string) => void;
   logout: () => void;
 }
 
@@ -21,23 +24,28 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       token: null,
+      refreshToken: null,
       user: null,
       isAuthenticated: false,
-      setAuth: (token, user) =>
+      setAuth: (token, refreshToken, user) =>
         set({
           token,
+          refreshToken,
           user,
           isAuthenticated: true,
         }),
+      setToken: (token) => set({ token }),
+      setRefreshToken: (refreshToken) => set({ refreshToken }),
       logout: () =>
         set({
           token: null,
+          refreshToken: null,
           user: null,
           isAuthenticated: false,
         }),
     }),
     {
-      name: 'grc-auth',
+      name: 'petrix-auth',
     }
   )
 );

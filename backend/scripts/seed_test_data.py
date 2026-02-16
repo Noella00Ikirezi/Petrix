@@ -30,10 +30,10 @@ def create_users(db: Session) -> dict[str, User]:
     users = {}
 
     user_data = [
-        ("admin@grc-platform.local", "Admin", "User", UserRole.ADMIN, os.environ.get("ADMIN_PASSWORD", "changeme")),
-        ("auditor@grc-platform.local", "Alice", "Auditor", UserRole.AUDITOR, os.environ.get("AUDITOR_PASSWORD", "changeme")),
-        ("analyst@grc-platform.local", "Bob", "Analyst", UserRole.ANALYST, os.environ.get("ANALYST_PASSWORD", "changeme")),
-        ("viewer@grc-platform.local", "Charlie", "Viewer", UserRole.VIEWER, os.environ.get("VIEWER_PASSWORD", "changeme")),
+        ("admin@petrix.local", "Admin", "User", UserRole.ADMIN, os.environ.get("ADMIN_PASSWORD", "changeme")),
+        ("auditor@petrix.local", "Alice", "Auditor", UserRole.AUDITOR, os.environ.get("AUDITOR_PASSWORD", "changeme")),
+        ("analyst@petrix.local", "Bob", "Analyst", UserRole.ANALYST, os.environ.get("ANALYST_PASSWORD", "changeme")),
+        ("viewer@petrix.local", "Charlie", "Viewer", UserRole.VIEWER, os.environ.get("VIEWER_PASSWORD", "changeme")),
     ]
 
     for email, first_name, last_name, role, password in user_data:
@@ -320,10 +320,10 @@ def seed_database():
         print(f"   - Vulnerabilities: {len(vulns)}")
         print(f"   - Scans: {len(scans)}")
         print("\n🔑 Test Credentials:")
-        print("   Admin:   admin@grc-platform.local / <set via ADMIN_PASSWORD env var>")
-        print("   Auditor: auditor@grc-platform.local / <set via AUDITOR_PASSWORD env var>")
-        print("   Analyst: analyst@grc-platform.local / <set via ANALYST_PASSWORD env var>")
-        print("   Viewer:  viewer@grc-platform.local / <set via VIEWER_PASSWORD env var>")
+        print("   Admin:   admin@petrix.local / <set via ADMIN_PASSWORD env var>")
+        print("   Auditor: auditor@petrix.local / <set via AUDITOR_PASSWORD env var>")
+        print("   Analyst: analyst@petrix.local / <set via ANALYST_PASSWORD env var>")
+        print("   Viewer:  viewer@petrix.local / <set via VIEWER_PASSWORD env var>")
 
     finally:
         db.close()

@@ -4,23 +4,26 @@ import {
   Server,
   Shield,
   Scan,
+  Crosshair,
   FileText,
   Users,
   Settings,
-  ShieldCheck,
   Building2,
   Sparkles,
+  ClipboardList,
 } from 'lucide-react';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Assets', href: '/assets', icon: Server },
   { name: 'Vulnerabilities', href: '/vulnerabilities', icon: Shield },
   { name: 'Scans', href: '/scans', icon: Scan },
+  { name: 'Pentest', href: '/pentest', icon: Crosshair },
   { name: 'SMSI Generator', href: '/smsi', icon: Sparkles },
   { name: 'Clients', href: '/clients', icon: Building2 },
   { name: 'Reports', href: '/reports', icon: FileText, disabled: true },
   { name: 'Users', href: '/users', icon: Users },
+  { name: 'Audit Logs', href: '/audit-logs', icon: ClipboardList },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
@@ -28,10 +31,11 @@ export default function Sidebar() {
   return (
     <div className="flex h-full w-64 flex-col border-r border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2 border-b border-gray-200 px-6 dark:border-gray-700">
-        <ShieldCheck className="h-8 w-8 text-primary-600" />
-        <span className="text-xl font-bold text-gray-900 dark:text-white">
-          GRC Platform
+      <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-6 dark:border-gray-700">
+        <img src="/logo-petrix-dark.svg" alt="Petrix" className="hidden h-9 w-9 dark:block" />
+        <img src="/logo-petrix.svg" alt="Petrix" className="h-9 w-9 dark:hidden" />
+        <span className="text-xl font-bold text-petrix-void dark:text-petrix-cyan-light">
+          Petrix
         </span>
       </div>
 
@@ -64,7 +68,7 @@ export default function Sidebar() {
       {/* Footer */}
       <div className="border-t border-gray-200 p-4 dark:border-gray-700">
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          GRC Platform v0.1.0
+          Petrix v0.1.0
         </p>
       </div>
     </div>

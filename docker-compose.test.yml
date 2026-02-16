@@ -5,15 +5,15 @@ services:
   # PostgreSQL Test Database
   db-test:
     image: postgres:16-alpine
-    container_name: grc-db-test
+    container_name: petrix-db-test
     environment:
-      POSTGRES_USER: ${TEST_POSTGRES_USER:-grc_test}
+      POSTGRES_USER: ${TEST_POSTGRES_USER:-petrix_test}
       POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD}
-      POSTGRES_DB: ${TEST_POSTGRES_DB:-grc_platform_test}
+      POSTGRES_DB: ${TEST_POSTGRES_DB:-petrix_test}
     ports:
       - "5433:5432"  # Port différent pour éviter conflit
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${TEST_POSTGRES_USER:-grc_test}"]
+      test: ["CMD-SHELL", "pg_isready -U ${TEST_POSTGRES_USER:-petrix_test}"]
       interval: 3s
       timeout: 3s
       retries: 5
@@ -24,7 +24,7 @@ services:
   # Redis Test
   redis-test:
     image: redis:7-alpine
-    container_name: grc-redis-test
+    container_name: petrix-redis-test
     ports:
       - "6380:6379"  # Port différent
     healthcheck:
@@ -38,14 +38,15 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: grc-backend-test
+    image: petrix-backend:latest
+    container_name: petrix-backend-test
     environment:
-      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-grc_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-grc_platform_test}
+      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-petrix_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-petrix_test}
       - REDIS_URL=redis://redis-test:6379/0
       - SECRET_KEY=${TEST_SECRET_KEY:-changeme}
       - DEBUG=true
       - CORS_ORIGINS=http://localhost:5174,http://localhost:3001
-      - ADMIN_EMAIL=test@grc-platform.local
+      - ADMIN_EMAIL=test@petrix.local
       - ADMIN_PASSWORD=${TEST_ADMIN_PASSWORD}
     volumes:
       - ./backend:/app
@@ -63,7 +64,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: grc-frontend-test
+    image: petrix-frontend:latest
+    container_name: petrix-frontend-test
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -77,12 +79,10 @@ services:
 
   # Test Runner - exécute les tests puis s'arrête
   test-runner:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: grc-test-runner
+    image: petrix-backend:latest
+    container_name: petrix-test-runner
     environment:
-      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-grc_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-grc_platform_test}
+      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-petrix_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-petrix_test}
       - REDIS_URL=redis://redis-test:6379/0
       - SECRET_KEY=${TEST_SECRET_KEY:-changeme}
       - TESTING=true
@@ -99,12 +99,10 @@ services:
 
   # Seed Data - peuple la DB avec des données de test
   seed-data:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: grc-seed-data
+    image: petrix-backend:latest
+    container_name: petrix-seed-data
     environment:
-      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-grc_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-grc_platform_test}
+      - DATABASE_URL=postgresql://${TEST_POSTGRES_USER:-petrix_test}:${TEST_POSTGRES_PASSWORD}@db-test:5432/${TEST_POSTGRES_DB:-petrix_test}
       - REDIS_URL=redis://redis-test:6379/0
       - SECRET_KEY=${TEST_SECRET_KEY:-changeme}
     volumes:
@@ -118,4 +116,4 @@ services:
 
 networks:
   default:
-    name: grc-test-network
+    name: petrix-test-network

@@ -1,0 +1,7 @@
+<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- PETRIX LOGO - VERSION DARK MODE (POUR FOND SOMBRE) -->
+<path d="M100 10L177.942 55V145L100 190L22.0577 145V55L100 10Z" stroke="#334155" stroke-width="2" fill="none"/>
+<path d="M70 60H110C126.569 60 140 73.4315 140 90C140 106.569 126.569 120 110 120H90V150" stroke="#22D3EE" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M70 60V150" stroke="#22D3EE" stroke-width="12" stroke-linecap="round"/>
+<circle cx="110" cy="90" r="6" fill="#0B1120"/>
+</svg>

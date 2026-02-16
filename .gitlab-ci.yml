@@ -1,0 +1,53 @@
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  DATABASE_URL: "sqlite:///./test.db"
+  SECRET_KEY: "ci-test-secret-key"
+  ADMIN_PASSWORD: "CITestAdmin123!"
+
+backend-lint:
+  stage: lint
+  image: python:3.12-slim
+  before_script:
+    - pip install ruff black
+  script:
+    - cd backend
+    - ruff check app/
+    - black --check app/
+
+backend-test:
+  stage: test
+  image: python:3.12-slim
+  before_script:
+    - cd backend
+    - pip install -r requirements.txt pytest-cov
+  script:
+    - cd backend
+    - pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: backend/coverage.xml
+
+frontend-test:
+  stage: test
+  image: node:20
+  before_script:
+    - cd frontend && npm ci
+  script:
+    - cd frontend && npm run test:coverage
+
+frontend-build:
+  stage: build
+  image: node:20
+  before_script:
+    - cd frontend && npm ci
+  script:
+    - cd frontend && npm run build
+  artifacts:
+    paths:
+      - frontend/dist/

@@ -14,7 +14,7 @@ from app.api.v1.router import api_router
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    logger.info("Starting GRC Platform API...")
+    logger.info("Starting Petrix API...")
 
     # Create tables
     Base.metadata.create_all(bind=engine)
@@ -47,12 +47,12 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logger.info("Shutting down GRC Platform API...")
+    logger.info("Shutting down Petrix API...")
 
 
 app = FastAPI(
     title=settings.app_name,
-    description="GRC Platform API - Governance, Risk, and Compliance Management",
+    description="Petrix API - Security & Compliance Platform",
     version="0.1.0",
     lifespan=lifespan,
 )

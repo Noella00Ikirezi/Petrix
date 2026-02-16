@@ -1,2 +1,2 @@
-"""GRC Platform Backend."""
+"""Petrix Backend."""
 __version__ = "0.1.0"

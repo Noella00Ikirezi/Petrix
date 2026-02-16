@@ -1,4 +1,5 @@
 """Application configuration using Pydantic Settings."""
+import secrets as _secrets
 from functools import lru_cache
 from typing import List
 
@@ -15,7 +16,7 @@ class Settings(BaseSettings):
     )
 
     # App
-    app_name: str = "GRC Platform"
+    app_name: str = "Petrix"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
@@ -26,7 +27,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # Security
-    secret_key: str = ""
+    secret_key: str = _secrets.token_urlsafe(32)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
@@ -48,11 +49,35 @@ class Settings(BaseSettings):
     MINIO_ENDPOINT: str = "minio:9000"
     MINIO_ACCESS_KEY: str = ""
     MINIO_SECRET_KEY: str = ""
-    MINIO_BUCKET: str = "grcplatform"
+    MINIO_BUCKET: str = "petrix"
     MINIO_SECURE: bool = False
 
+    # Pentest
+    PENTEST_NMAP_DEFAULT_PORTS: str = "21-23,25,53,80,110,139,143,443,445,993,995,1433,3306,3389,5432,5900,6379,8080,8443,27017"
+    PENTEST_NMAP_TIMING: str = "T4"
+    PENTEST_MAX_SCAN_DURATION: int = 3600
+    PENTEST_AI_MAX_FINDINGS: int = 15
+    PENTEST_REPORT_BUCKET: str = "pentest-reports"
+    PENTEST_SSH_TIMEOUT: int = 30
+
+    # SMTP
+    smtp_host: str = ""
+    smtp_port: int = 1025
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@petrix.local"
+    smtp_from_name: str = "Petrix"
+    smtp_tls: bool = False
+
+    # Auth extended
+    refresh_token_expire_days: int = 7
+    mfa_token_expire_minutes: int = 5
+    otp_length: int = 6
+    max_failed_login_attempts: int = 5
+    account_lockout_minutes: int = 30
+
     # Admin user (created on first run)
-    admin_email: str = "admin@grc-platform.local"
+    admin_email: str = "admin@petrix.local"
     admin_password: str = ""
 
 

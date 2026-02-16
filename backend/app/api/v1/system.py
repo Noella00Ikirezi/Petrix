@@ -23,7 +23,7 @@ router = APIRouter()
 
 # Current version
 APP_VERSION = "1.0.0"
-UPDATE_CHECK_URL = "https://api.grc-platform.io/v1/updates"  # Your update server
+UPDATE_CHECK_URL = "https://api.petrix.io/v1/updates"  # Your update server
 
 
 class VersionInfo(BaseModel):

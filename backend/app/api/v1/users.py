@@ -3,13 +3,13 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-
 from app.core.security import get_password_hash, verify_password
 from app.core.permissions import Permission, UserRole, ROLE_PERMISSIONS, get_role_permissions, has_permission
+from app.core.audit import log_audit_event
 from app.infrastructure.database import get_db
 from app.infrastructure.database.models import User
 from app.api.v1.deps import get_current_active_user, require_permission
@@ -514,9 +514,16 @@ async def update_user_role(
             detail="Cannot demote yourself from admin role",
         )
 
+    old_role = user.role.value
     user.role = role
     db.commit()
     db.refresh(user)
+
+    log_audit_event(
+        db=db, action="change_role", resource_type="user",
+        user_id=current_user.id, resource_id=str(user_id),
+        details={"target_email": user.email, "old_role": old_role, "new_role": role.value},
+    )
 
     return user_to_response(user)
 
@@ -579,6 +586,12 @@ async def activate_user(
     db.commit()
     db.refresh(user)
 
+    log_audit_event(
+        db=db, action="activate_user", resource_type="user",
+        user_id=current_user.id, resource_id=str(user_id),
+        details={"target_email": user.email},
+    )
+
     return user_to_response(user)
 
 
@@ -618,6 +631,12 @@ async def deactivate_user(
     user.is_active = False
     db.commit()
     db.refresh(user)
+
+    log_audit_event(
+        db=db, action="deactivate_user", resource_type="user",
+        user_id=current_user.id, resource_id=str(user_id),
+        details={"target_email": user.email},
+    )
 
     return user_to_response(user)
 
@@ -661,6 +680,12 @@ async def reset_user_password(
     user.locked_until = None
     db.commit()
 
+    log_audit_event(
+        db=db, action="reset_password", resource_type="user",
+        user_id=current_user.id, resource_id=str(user_id),
+        details={"target_email": user.email},
+    )
+
     return {"message": "Password reset successfully"}
 
 
@@ -693,6 +718,11 @@ async def change_my_password(
 
     current_user.password_hash = get_password_hash(data.new_password)
     db.commit()
+
+    log_audit_event(
+        db=db, action="change_password", resource_type="user",
+        user_id=current_user.id, resource_id=str(current_user.id),
+    )
 
     return {"message": "Password changed successfully"}
 
@@ -730,5 +760,12 @@ async def delete_user(
                 detail="Cannot delete the last admin user",
             )
 
+    target_email = user.email
     db.delete(user)
     db.commit()
+
+    log_audit_event(
+        db=db, action="delete_user", resource_type="user",
+        user_id=current_user.id, resource_id=str(user_id),
+        details={"target_email": target_email},
+    )
