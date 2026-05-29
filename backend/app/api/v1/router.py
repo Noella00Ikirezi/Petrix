@@ -1,7 +1,7 @@
 """API v1 main router."""
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, assets, vulnerabilities, scans, dashboard, system, smsi, clients, pentest, audit_logs
+from app.api.v1 import auth, users, assets, vulnerabilities, scans, dashboard, system, smsi, clients, pentest, audit_logs, hardening
 
 api_router = APIRouter()
 
@@ -19,3 +19,4 @@ api_router.include_router(smsi.router)
 api_router.include_router(clients.router)
 api_router.include_router(pentest.router, prefix="/pentest", tags=["Pentest"])
 api_router.include_router(audit_logs.router, prefix="/audit-logs", tags=["Audit Logs"])
+api_router.include_router(hardening.router, prefix="/hardening", tags=["Hardening"])

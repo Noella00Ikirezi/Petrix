@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Loader2, Mail, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '@/api/client';
@@ -180,6 +180,14 @@ export default function LoginPage() {
               </button>
             </form>
 
+            <div className="mt-4 text-center">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Don't have an account?{' '}
+                <Link to="/signup" className="font-medium text-primary-600 hover:underline dark:text-primary-400">
+                  Sign up
+                </Link>
+              </p>
+            </div>
           </div>
         )}
 

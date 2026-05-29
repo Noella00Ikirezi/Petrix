@@ -96,8 +96,8 @@ export default function HomePage() {
                 Dashboard
               </Link>
             ) : (
-              <Link to="/login" className="btn btn-primary btn-md">
-                Sign in
+              <Link to="/signup" className="btn btn-primary btn-md">
+                Sign up
               </Link>
             )}
           </div>
@@ -128,7 +128,7 @@ export default function HomePage() {
               </Link>
             ) : (
               <>
-                <Link to="/login" className="btn btn-primary btn-lg">
+                <Link to="/signup" className="btn btn-primary btn-lg">
                   Commencer
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Link>
@@ -216,8 +216,8 @@ export default function HomePage() {
             </span>
           </div>
           {!isAuthenticated && (
-            <Link to="/login" className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400">
-              Sign in
+            <Link to="/signup" className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400">
+              Sign up
             </Link>
           )}
         </div>

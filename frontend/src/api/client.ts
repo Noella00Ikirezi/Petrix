@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export const apiClient = axios.create({
   baseURL: `${API_BASE_URL}/api/v1`,
@@ -92,6 +92,15 @@ apiClient.interceptors.response.use(
 
 // Auth API (2-step MFA)
 export const authApi = {
+  signup: async (email?: string, password?: string, firstName?: string, lastName?: string) => {
+    const response = await apiClient.post('/auth/signup', {
+      email,
+      password,
+      first_name: firstName,
+      last_name: lastName,
+    });
+    return response.data;
+  },
   login: async (email: string, password: string) => {
     const response = await apiClient.post('/auth/login', { email, password });
     return response.data;
@@ -287,6 +296,43 @@ export const dashboardApi = {
 export const auditLogsApi = {
   list: async (params?: Record<string, unknown>) => {
     const response = await apiClient.get('/audit-logs', { params });
+    return response.data;
+  },
+};
+
+// Hardening (HCO) API
+export const hardeningApi = {
+  listModules: async () => {
+    const response = await apiClient.get('/hardening/modules');
+    return response.data;
+  },
+  // Targets
+  listTargets: async () => {
+    const response = await apiClient.get('/hardening/targets');
+    return response.data;
+  },
+  createTarget: async (data: Record<string, unknown>) => {
+    const response = await apiClient.post('/hardening/targets', data);
+    return response.data;
+  },
+  deleteTarget: async (id: string) => {
+    await apiClient.delete(`/hardening/targets/${id}`);
+  },
+  // Sessions
+  listSessions: async () => {
+    const response = await apiClient.get('/hardening/sessions');
+    return response.data;
+  },
+  getSession: async (id: string) => {
+    const response = await apiClient.get(`/hardening/sessions/${id}`);
+    return response.data;
+  },
+  createSession: async (data: Record<string, unknown>) => {
+    const response = await apiClient.post('/hardening/sessions', data);
+    return response.data;
+  },
+  getFindings: async (sessionId: string) => {
+    const response = await apiClient.get(`/hardening/sessions/${sessionId}/findings`);
     return response.data;
   },
 };

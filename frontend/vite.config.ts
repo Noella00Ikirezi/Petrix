@@ -12,11 +12,15 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: ['petrix.noellahome.org', 'localhost', '3.255.126.244'],
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+    },
+    watch: {
+      ignored: ['**/Dockerfile', '**/Dockerfile.*', '**/*.md', '**/Makefile', '**/.env*'],
     },
   },
 });

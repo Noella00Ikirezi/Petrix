@@ -2,12 +2,16 @@ stages:
   - lint
   - test
   - build
+  - deploy
 
 variables:
   DATABASE_URL: "sqlite:///./test.db"
   SECRET_KEY: "ci-test-secret-key"
   ADMIN_PASSWORD: "CITestAdmin123!"
 
+# ---------------------------------------------------------------------------
+# LINT
+# ---------------------------------------------------------------------------
 backend-lint:
   stage: lint
   image: python:3.12-slim
@@ -18,6 +22,9 @@ backend-lint:
     - ruff check app/
     - black --check app/
 
+# ---------------------------------------------------------------------------
+# TEST
+# ---------------------------------------------------------------------------
 backend-test:
   stage: test
   image: python:3.12-slim
@@ -41,6 +48,9 @@ frontend-test:
   script:
     - cd frontend && npm run test:coverage
 
+# ---------------------------------------------------------------------------
+# BUILD (validation only — images are built on EC2)
+# ---------------------------------------------------------------------------
 frontend-build:
   stage: build
   image: node:20
@@ -51,3 +61,85 @@ frontend-build:
   artifacts:
     paths:
       - frontend/dist/
+
+# ---------------------------------------------------------------------------
+# DEPLOY — déclenché sur push vers main uniquement
+# ---------------------------------------------------------------------------
+deploy-production:
+  stage: deploy
+  image: python:3.12-slim
+  only:
+    - main
+  environment:
+    name: production
+    url: https://petrix.noellahome.org
+  before_script:
+    # Installer outils
+    - apt-get update -qq && apt-get install -y -qq openssh-client rsync awscli curl
+
+    # Configurer la clé SSH de déploiement
+    - mkdir -p ~/.ssh
+    - echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+    - chmod 600 ~/.ssh/deploy_key
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/config
+
+    # Ouvrir le port 22 depuis l'IP du runner GitLab CI
+    - RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
+    - echo "Runner IP = $RUNNER_IP"
+    - |
+      RULE_ID=$(aws --region eu-west-1 ec2 authorize-security-group-ingress \
+        --group-id "$EC2_SG_ID" \
+        --ip-permissions "[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"${RUNNER_IP}/32\",\"Description\":\"gitlab-ci-runner\"}]}]" \
+        --query 'SecurityGroupRules[0].SecurityGroupRuleId' --output text)
+      echo "SG rule added: $RULE_ID"
+      export RUNNER_SG_RULE_ID="$RULE_ID"
+
+  script:
+    # Synchroniser le code vers EC2 (exclut node_modules, .git, __pycache__, etc.)
+    - |
+      rsync -az --delete \
+        --exclude='.git' \
+        --exclude='node_modules' \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        --exclude='.env' \
+        --exclude='frontend/dist' \
+        -e "ssh -i ~/.ssh/deploy_key" \
+        . ${EC2_USER}@${EC2_HOST}:/home/ec2-user/petrix/
+
+    # Rebuild + restart sur EC2
+    - |
+      ssh -i ~/.ssh/deploy_key ${EC2_USER}@${EC2_HOST} '
+        set -e
+        cd /home/ec2-user/petrix
+
+        # Pull latest (si git remote configuré sur EC2)
+        # git pull origin main 2>/dev/null || true
+
+        # Rebuild images et relancer les containers prod
+        docker compose -f docker/docker-compose.prod.yml build --no-cache
+        docker compose -f docker/docker-compose.prod.yml up -d --remove-orphans
+
+        # Vérifier que les containers sont up
+        echo "=== Containers running ==="
+        docker compose -f docker/docker-compose.prod.yml ps
+      '
+
+  after_script:
+    # Toujours fermer le port 22, même si le deploy a échoué
+    - |
+      if [ -n "$RUNNER_SG_RULE_ID" ]; then
+        aws --region eu-west-1 ec2 revoke-security-group-ingress \
+          --group-id "$EC2_SG_ID" \
+          --security-group-rule-ids "$RUNNER_SG_RULE_ID" && \
+          echo "SG rule $RUNNER_SG_RULE_ID removed"
+      fi
+
+  # Variables nécessaires dans GitLab CI/CD → Settings → CI/CD → Variables :
+  # EC2_SSH_KEY         — clé privée ED25519 (contenu du fichier /tmp/petrix_deploy_ed25519)
+  # EC2_HOST            — 3.255.126.244
+  # EC2_USER            — ec2-user
+  # EC2_SG_ID           — sg-09896b73bb44d0ac3
+  # AWS_ACCESS_KEY_ID   — clé IAM pour modifier le SG
+  # AWS_SECRET_ACCESS_KEY
+  # AWS_DEFAULT_REGION  — eu-west-1

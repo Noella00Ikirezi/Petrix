@@ -16,9 +16,12 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Petrix API...")
 
-    # Create tables
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created")
+    # Create tables (wrapped to handle concurrent-worker race condition)
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created")
+    except Exception as e:
+        logger.warning(f"create_all skipped (likely already done by another worker): {e}")
 
     # Create default admin user if not exists
     from app.infrastructure.database import SessionLocal

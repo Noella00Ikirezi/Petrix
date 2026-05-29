@@ -1,7 +1,33 @@
+# Secrets
 .env
+scripts/petrix_gitlab_deploy_key
+docs/RUNBOOK-SECRET.md
+
+# Dependencies
 node_modules/
+.venv/
+venv/
+
+# Python
 __pycache__/
 *.pyc
-.DS_Store
-*.log
+*.pyo
+*.pyd
+
+# IDE
 .idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
+*.bkp
+._*
+
+# Logs
+*.log
+
+# Build
+dist/
+build/
+*.egg-info/

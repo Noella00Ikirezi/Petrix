@@ -1,7 +1,9 @@
+import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import Layout from '@/components/layout/Layout';
 import LoginPage from '@/pages/auth/LoginPage';
+import SignupPage from '@/pages/auth/SigninPage';
 import HomePage from '@/pages/HomePage';
 import DashboardPage from '@/pages/DashboardPage';
 import AssetsPage from '@/pages/assets/AssetsPage';
@@ -13,6 +15,7 @@ import { SMSIPage } from '@/pages/smsi/SMSIPage';
 import { ClientsPage } from '@/pages/clients/ClientsPage';
 import PentestPage from '@/pages/pentest/PentestPage';
 import PentestSessionDetail from '@/pages/pentest/PentestSessionDetail';
+import HardeningPage from '@/pages/hardening/HardeningPage';
 import AuditLogsPage from '@/pages/audit/AuditLogsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -28,8 +31,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      
       <Route path="/" element={<HomePage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
       <Route
         path="/dashboard"
         element={
@@ -75,6 +80,14 @@ function App() {
         element={
           <ProtectedRoute>
             <PentestSessionDetail />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/hardening"
+        element={
+          <ProtectedRoute>
+            <HardeningPage />
           </ProtectedRoute>
         }
       />
