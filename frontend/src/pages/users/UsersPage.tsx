@@ -66,7 +66,12 @@ const roleIcons: Record<string, React.ReactNode> = {
 export default function UsersPage() {
   const { token, user: currentUser } = useAuthStore();
   const [users, setUsers] = useState<User[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  const [roles, setRoles] = useState<Role[]>([
+    { name: 'Viewer',  value: 'viewer',  description: 'Lecture seule',              permissions: [], user_count: 0 },
+    { name: 'Analyst', value: 'analyst', description: 'Analyste sécurité',          permissions: [], user_count: 0 },
+    { name: 'Auditor', value: 'auditor', description: 'Auditeur',                   permissions: [], user_count: 0 },
+    { name: 'Admin',   value: 'admin',   description: 'Administrateur complet',     permissions: [], user_count: 0 },
+  ]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
