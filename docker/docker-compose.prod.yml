@@ -45,15 +45,12 @@ services:
   frontend:
     build:
       context: ../frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     image: petrix-frontend:prod
     container_name: petrix-frontend
     restart: unless-stopped
-    ports:
-      - "5173:5173"
     depends_on:
       - backend
-    command: npm run dev -- --host
 
   nginx:
     image: nginx:alpine
