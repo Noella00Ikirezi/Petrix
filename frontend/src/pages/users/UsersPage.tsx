@@ -244,38 +244,31 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* Roles Overview */}
-      <div className="card">
-        <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-          Roles Overview
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {roles.map((role) => (
-            <div
-              key={role.value}
-              className="rounded-lg border border-gray-200 p-4 dark:border-gray-700"
-            >
-              <div className="flex items-center gap-2">
-                <span className={`rounded-full p-2 ${roleColors[role.value]}`}>
-                  {roleIcons[role.value]}
-                </span>
-                <div>
-                  <h3 className="font-medium text-gray-900 dark:text-white capitalize">
-                    {role.value}
-                  </h3>
-                  <p className="text-sm text-gray-500">{role.user_count} users</p>
+      {/* Roles Overview — admin uniquement */}
+      {currentUser?.role === 'admin' && (
+        <div className="card">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
+            Aperçu des rôles
+          </h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {roles.map((role) => (
+              <div key={role.value} className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full p-2 ${roleColors[role.value]}`}>
+                    {roleIcons[role.value]}
+                  </span>
+                  <div>
+                    <h3 className="font-medium capitalize text-gray-900 dark:text-white">{role.value}</h3>
+                    <p className="text-sm text-gray-500">{role.user_count} utilisateurs</p>
+                  </div>
                 </div>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{role.description}</p>
+                <p className="mt-1 text-xs text-gray-400">{role.permissions.length} permissions</p>
               </div>
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                {role.description}
-              </p>
-              <p className="mt-1 text-xs text-gray-400">
-                {role.permissions.length} permissions
-              </p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Filters */}
       <div className="card">

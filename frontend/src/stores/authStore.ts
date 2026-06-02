@@ -17,6 +17,7 @@ interface AuthState {
   setAuth: (token: string, refreshToken: string, user: User) => void;
   setToken: (token: string) => void;
   setRefreshToken: (refreshToken: string) => void;
+  updateUser: (updates: Partial<User>) => void;
   logout: () => void;
 }
 
@@ -28,24 +29,16 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
       setAuth: (token, refreshToken, user) =>
-        set({
-          token,
-          refreshToken,
-          user,
-          isAuthenticated: true,
-        }),
+        set({ token, refreshToken, user, isAuthenticated: true }),
       setToken: (token) => set({ token }),
       setRefreshToken: (refreshToken) => set({ refreshToken }),
+      updateUser: (updates) =>
+        set((state) => ({
+          user: state.user ? { ...state.user, ...updates } : state.user,
+        })),
       logout: () =>
-        set({
-          token: null,
-          refreshToken: null,
-          user: null,
-          isAuthenticated: false,
-        }),
+        set({ token: null, refreshToken: null, user: null, isAuthenticated: false }),
     }),
-    {
-      name: 'petrix-auth',
-    }
+    { name: 'petrix-auth' }
   )
 );

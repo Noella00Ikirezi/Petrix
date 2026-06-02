@@ -1,33 +1,26 @@
 import { useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { Settings, User, Shield, Bell, Palette } from 'lucide-react';
+import { User, Shield, Bell, Palette } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('profile');
-  const { user } = useAuthStore();
 
   const tabs = [
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'security', label: 'Security', icon: Shield },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'appearance', label: 'Appearance', icon: Palette },
+    { id: 'profile',       label: 'Profil',        icon: User },
+    { id: 'security',      label: 'Sécurité',       icon: Shield },
+    { id: 'notifications', label: 'Notifications',  icon: Bell },
+    { id: 'appearance',    label: 'Apparence',      icon: Palette },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Settings
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Manage your account and preferences
-        </p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Paramètres</h1>
+        <p className="text-gray-600 dark:text-gray-400">Gérez votre compte et vos préférences</p>
       </div>
 
       <div className="flex gap-6">
-        {/* Tabs */}
         <div className="w-48 shrink-0">
           <nav className="space-y-1">
             {tabs.map((tab) => (
@@ -47,85 +40,105 @@ export default function SettingsPage() {
           </nav>
         </div>
 
-        {/* Content */}
         <div className="flex-1">
-          {activeTab === 'profile' && <ProfileSettings user={user} />}
-          {activeTab === 'security' && <SecuritySettings />}
+          {activeTab === 'profile'       && <ProfileSettings />}
+          {activeTab === 'security'      && <SecuritySettings />}
           {activeTab === 'notifications' && <NotificationSettings />}
-          {activeTab === 'appearance' && <AppearanceSettings />}
+          {activeTab === 'appearance'    && <AppearanceSettings />}
         </div>
       </div>
     </div>
   );
 }
 
-function ProfileSettings({ user }: { user: { email: string; first_name: string | null; last_name: string | null; role: string } | null }) {
+function ProfileSettings() {
+  const { user, token, updateUser } = useAuthStore();
   const [formData, setFormData] = useState({
     first_name: user?.first_name || '',
-    last_name: user?.last_name || '',
-    email: user?.email || '',
+    last_name:  user?.last_name  || '',
   });
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success('Profile updated (demo)');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/v1/users/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(formData),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateUser({ first_name: updated.first_name, last_name: updated.last_name });
+        toast.success('Profil mis à jour');
+      } else {
+        toast.error('Erreur lors de la mise à jour');
+      }
+    } catch {
+      toast.error('Erreur réseau');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const initials = user?.first_name && user?.last_name
+    ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
+    : user?.first_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || '?';
+
   return (
-    <div className="card">
-      <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-        Profile Information
-      </h2>
+    <div className="card space-y-6">
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Informations du profil</h2>
+
+      {/* Avatar */}
+      <div className="flex items-center gap-4">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-500 text-2xl font-bold text-white">
+          {initials}
+        </div>
+        <div>
+          <p className="font-medium text-gray-900 dark:text-white">
+            {user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.email}
+          </p>
+          <p className="text-sm capitalize text-gray-500 dark:text-gray-400">{user?.role}</p>
+        </div>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label">First Name</label>
+            <label className="label">Prénom</label>
             <input
               type="text"
               value={formData.first_name}
-              onChange={(e) =>
-                setFormData({ ...formData, first_name: e.target.value })
-              }
+              onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
               className="input mt-1"
+              placeholder="Votre prénom"
             />
           </div>
           <div>
-            <label className="label">Last Name</label>
+            <label className="label">Nom</label>
             <input
               type="text"
               value={formData.last_name}
-              onChange={(e) =>
-                setFormData({ ...formData, last_name: e.target.value })
-              }
+              onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
               className="input mt-1"
+              placeholder="Votre nom"
             />
           </div>
         </div>
         <div>
           <label className="label">Email</label>
-          <input
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="input mt-1"
-            disabled
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Email cannot be changed
-          </p>
+          <input type="email" value={user?.email || ''} className="input mt-1 opacity-60" disabled />
+          <p className="mt-1 text-xs text-gray-500">L'email ne peut pas être modifié</p>
         </div>
         <div>
-          <label className="label">Role</label>
-          <input
-            type="text"
-            value={user?.role || ''}
-            className="input mt-1"
-            disabled
-          />
+          <label className="label">Rôle</label>
+          <input type="text" value={user?.role || ''} className="input mt-1 capitalize opacity-60" disabled />
+          <p className="mt-1 text-xs text-gray-500">Le rôle est géré par un administrateur</p>
         </div>
-        <div className="pt-4">
-          <button type="submit" className="btn btn-primary btn-md">
-            Save Changes
+        <div className="pt-2">
+          <button type="submit" disabled={loading} className="btn btn-primary btn-md">
+            {loading ? 'Enregistrement...' : 'Enregistrer les modifications'}
           </button>
         </div>
       </form>
@@ -134,62 +147,72 @@ function ProfileSettings({ user }: { user: { email: string; first_name: string |
 }
 
 function SecuritySettings() {
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const { token } = useAuthStore();
+  const [form, setForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword !== confirmPassword) {
-      toast.error('Passwords do not match');
+    if (form.new_password !== form.confirm_password) {
+      toast.error('Les mots de passe ne correspondent pas');
       return;
     }
-    toast.success('Password changed (demo)');
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
+    if (form.new_password.length < 8) {
+      toast.error('Le nouveau mot de passe doit faire au moins 8 caractères');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/v1/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ new_password: form.new_password }),
+      });
+      if (res.ok) {
+        toast.success('Mot de passe changé avec succès');
+        setForm({ current_password: '', new_password: '', confirm_password: '' });
+      } else {
+        const data = await res.json();
+        toast.error(data.detail || 'Erreur');
+      }
+    } catch {
+      toast.error('Erreur réseau');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="card">
-      <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-        Change Password
-      </h2>
+      <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Changer le mot de passe</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="label">Current Password</label>
+          <label className="label">Nouveau mot de passe</label>
           <input
             type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
+            value={form.new_password}
+            onChange={(e) => setForm({ ...form, new_password: e.target.value })}
             className="input mt-1"
-            required
-          />
-        </div>
-        <div>
-          <label className="label">New Password</label>
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            className="input mt-1"
-            required
+            autoComplete="new-password"
             minLength={8}
+            required
           />
+          <p className="mt-1 text-xs text-gray-500">Minimum 8 caractères</p>
         </div>
         <div>
-          <label className="label">Confirm New Password</label>
+          <label className="label">Confirmer le nouveau mot de passe</label>
           <input
             type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
+            value={form.confirm_password}
+            onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
             className="input mt-1"
+            autoComplete="new-password"
             required
           />
         </div>
-        <div className="pt-4">
-          <button type="submit" className="btn btn-primary btn-md">
-            Change Password
+        <div className="pt-2">
+          <button type="submit" disabled={loading} className="btn btn-primary btn-md">
+            {loading ? 'Enregistrement...' : 'Changer le mot de passe'}
           </button>
         </div>
       </form>
@@ -202,90 +225,40 @@ function NotificationSettings() {
     email_scan_complete: true,
     email_critical_vuln: true,
     email_weekly_report: false,
-    browser_notifications: true,
   });
-
-  const handleToggle = (key: keyof typeof settings) => {
-    setSettings({ ...settings, [key]: !settings[key] });
-    toast.success('Setting updated');
-  };
 
   return (
     <div className="card">
-      <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-        Notification Preferences
-      </h2>
+      <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Notifications</h2>
       <div className="space-y-4">
-        <ToggleOption
-          label="Scan completion emails"
-          description="Receive an email when a scan completes"
-          checked={settings.email_scan_complete}
-          onChange={() => handleToggle('email_scan_complete')}
-        />
-        <ToggleOption
-          label="Critical vulnerability alerts"
-          description="Immediate notification for critical findings"
-          checked={settings.email_critical_vuln}
-          onChange={() => handleToggle('email_critical_vuln')}
-        />
-        <ToggleOption
-          label="Weekly security report"
-          description="Receive a weekly summary of your security posture"
-          checked={settings.email_weekly_report}
-          onChange={() => handleToggle('email_weekly_report')}
-        />
-        <ToggleOption
-          label="Browser notifications"
-          description="Show desktop notifications for important events"
-          checked={settings.browser_notifications}
-          onChange={() => handleToggle('browser_notifications')}
-        />
+        <Toggle label="Scan terminé" description="Email quand un scan se termine" checked={settings.email_scan_complete} onChange={() => setSettings(s => ({ ...s, email_scan_complete: !s.email_scan_complete }))} />
+        <Toggle label="Vulnérabilité critique" description="Alerte immédiate pour les findings critiques" checked={settings.email_critical_vuln} onChange={() => setSettings(s => ({ ...s, email_critical_vuln: !s.email_critical_vuln }))} />
+        <Toggle label="Rapport hebdomadaire" description="Résumé de sécurité chaque semaine" checked={settings.email_weekly_report} onChange={() => setSettings(s => ({ ...s, email_weekly_report: !s.email_weekly_report }))} />
       </div>
     </div>
   );
 }
 
 function AppearanceSettings() {
-  const [isDark, setIsDark] = useState(
-    document.documentElement.classList.contains('dark')
-  );
+  const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'));
 
-  const toggleDarkMode = () => {
-    const newValue = !isDark;
-    setIsDark(newValue);
-    localStorage.setItem('darkMode', String(newValue));
-    document.documentElement.classList.toggle('dark', newValue);
-    toast.success(`${newValue ? 'Dark' : 'Light'} mode enabled`);
+  const toggle = () => {
+    const v = !isDark;
+    setIsDark(v);
+    localStorage.setItem('darkMode', String(v));
+    document.documentElement.classList.toggle('dark', v);
+    toast.success(`Mode ${v ? 'sombre' : 'clair'} activé`);
   };
 
   return (
     <div className="card">
-      <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
-        Appearance
-      </h2>
-      <div className="space-y-4">
-        <ToggleOption
-          label="Dark mode"
-          description="Use dark theme for the interface"
-          checked={isDark}
-          onChange={toggleDarkMode}
-        />
-      </div>
+      <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Apparence</h2>
+      <Toggle label="Mode sombre" description="Utiliser le thème sombre" checked={isDark} onChange={toggle} />
     </div>
   );
 }
 
-function ToggleOption({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: () => void;
-}) {
+function Toggle({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: () => void }) {
   return (
     <div className="flex items-center justify-between">
       <div>
@@ -295,15 +268,9 @@ function ToggleOption({
       <button
         type="button"
         onClick={onChange}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-          checked ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'
-        }`}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? 'bg-primary-600' : 'bg-gray-300 dark:bg-gray-600'}`}
       >
-        <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-            checked ? 'translate-x-6' : 'translate-x-1'
-          }`}
-        />
+        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
       </button>
     </div>
   );

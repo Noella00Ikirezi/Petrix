@@ -349,6 +349,23 @@ async def get_current_user_info(
     return user_to_response(current_user)
 
 
+@router.patch("/me", response_model=UserResponse)
+async def update_my_profile(
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Update own profile — first name and last name only, role not changeable."""
+    if user_data.first_name is not None:
+        current_user.first_name = user_data.first_name
+    if user_data.last_name is not None:
+        current_user.last_name = user_data.last_name
+    # role et is_active ignorés volontairement
+    db.commit()
+    db.refresh(current_user)
+    return user_to_response(current_user)
+
+
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: UUID,
