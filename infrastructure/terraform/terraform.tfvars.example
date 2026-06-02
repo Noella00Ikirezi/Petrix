@@ -1,0 +1,14 @@
+# Copier en terraform.tfvars et remplir les valeurs
+# Ne jamais committer terraform.tfvars (il est dans .gitignore)
+
+aws_region    = "eu-west-1"
+petrix_ec2_ip = "3.255.126.244"
+
+# Ton IP locale : curl https://checkip.amazonaws.com
+local_ip = "TON_IP_ICI"
+
+# Ta clé publique SSH : cat ~/.ssh/petrix-ec2.pub
+ssh_public_key = "ssh-ed25519 AAAA... ton-email"
+
+# Mot de passe pour l'utilisateur petrix-demo sur les VMs
+demo_password = "PetrixDemo2026!"
