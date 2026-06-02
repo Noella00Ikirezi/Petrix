@@ -47,7 +47,7 @@ interface UserStats {
   users_by_role: Record<string, number>;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = '';
 
 const roleColors: Record<string, string> = {
   admin: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300',
