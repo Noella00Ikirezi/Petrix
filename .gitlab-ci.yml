@@ -64,84 +64,55 @@ frontend-build:
 
 # ---------------------------------------------------------------------------
 # DEPLOY — déclenché sur push vers main uniquement
-# Utilise EC2 Instance Connect : aucune clé privée stockée dans GitLab
+# Utilise AWS SSM : aucun port ouvert, aucune clé SSH stockée dans GitLab
+# EC2 reçoit la commande via l'API AWS et fait git pull + docker compose up
 # ---------------------------------------------------------------------------
 deploy-production:
   stage: deploy
-  image: python:3.12-slim
+  image: amazon/aws-cli:latest
   only:
     - main
   environment:
     name: production
     url: https://petrix.noellahome.org
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq openssh-client rsync curl
-    - pip install -q awscli
-
-    # Générer une clé SSH éphémère (valable 60s via EC2 Instance Connect)
-    - ssh-keygen -t ed25519 -f ~/.ssh/ci_temp_key -N "" -q
-    - echo "StrictHostKeyChecking no" > ~/.ssh/config
-
-    # Ouvrir le port 22 depuis l'IP du runner
-    - RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
-    - |
-      RULE_ID=$(aws --region eu-west-1 ec2 authorize-security-group-ingress \
-        --group-id "$EC2_SG_ID" \
-        --ip-permissions "[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"${RUNNER_IP}/32\",\"Description\":\"gitlab-ci-runner\"}]}]" \
-        --query 'SecurityGroupRules[0].SecurityGroupRuleId' --output text 2>/dev/null || echo "already-open")
-      echo "SG rule: $RULE_ID"
-      export RUNNER_SG_RULE_ID="$RULE_ID"
-
-    # Pousser la clé éphémère via EC2 Instance Connect (valide 60s)
-    - |
-      aws --region eu-west-1 ec2-instance-connect send-ssh-public-key \
-        --instance-id "$EC2_INSTANCE_ID" \
-        --instance-os-user "$EC2_USER" \
-        --ssh-public-key file://~/.ssh/ci_temp_key.pub
-
   script:
-    # Synchroniser le code (doit démarrer dans les 60s après send-ssh-public-key)
+    # Envoyer la commande de déploiement à EC2 via SSM (pas de SSH, pas de port ouvert)
     - |
-      rsync -az --delete \
-        --exclude='.git' \
-        --exclude='node_modules' \
-        --exclude='__pycache__' \
-        --exclude='*.pyc' \
-        --exclude='.env' \
-        --exclude='frontend/dist' \
-        -e "ssh -i ~/.ssh/ci_temp_key" \
-        . ${EC2_USER}@${EC2_HOST}:/home/ec2-user/petrix/
+      COMMAND_ID=$(aws ssm send-command \
+        --region eu-west-1 \
+        --instance-ids "$EC2_INSTANCE_ID" \
+        --document-name "AWS-RunShellScript" \
+        --comment "Deploy from GitLab CI - $CI_COMMIT_SHORT_SHA" \
+        --parameters 'commands=[
+          "set -e",
+          "cd /home/ec2-user/petrix",
+          "git pull origin main",
+          "docker compose -f docker/docker-compose.prod.yml build",
+          "docker compose -f docker/docker-compose.prod.yml up -d --remove-orphans",
+          "docker compose -f docker/docker-compose.prod.yml ps"
+        ]' \
+        --query 'Command.CommandId' \
+        --output text)
+      echo "SSM Command ID: $COMMAND_ID"
 
-    # Rebuild + restart (nouvelle connexion = nouvelle clé éphémère)
+    # Attendre que la commande se termine (max 10 min)
     - |
-      aws --region eu-west-1 ec2-instance-connect send-ssh-public-key \
+      aws ssm wait command-executed \
+        --region eu-west-1 \
+        --command-id "$COMMAND_ID" \
+        --instance-id "$EC2_INSTANCE_ID"
+
+    # Afficher le résultat
+    - |
+      aws ssm get-command-invocation \
+        --region eu-west-1 \
+        --command-id "$COMMAND_ID" \
         --instance-id "$EC2_INSTANCE_ID" \
-        --instance-os-user "$EC2_USER" \
-        --ssh-public-key file://~/.ssh/ci_temp_key.pub
-    - |
-      ssh -i ~/.ssh/ci_temp_key ${EC2_USER}@${EC2_HOST} '
-        set -e
-        cd /home/ec2-user/petrix
-        docker compose -f docker/docker-compose.prod.yml build
-        docker compose -f docker/docker-compose.prod.yml up -d --remove-orphans
-        docker compose -f docker/docker-compose.prod.yml ps
-      '
+        --query '[StatusDetails, StandardOutputContent]' \
+        --output text
 
-  after_script:
-    # Fermer le port 22 dans tous les cas
-    - |
-      if [ -n "$RUNNER_SG_RULE_ID" ] && [ "$RUNNER_SG_RULE_ID" != "already-open" ]; then
-        aws --region eu-west-1 ec2 revoke-security-group-ingress \
-          --group-id "$EC2_SG_ID" \
-          --security-group-rule-ids "$RUNNER_SG_RULE_ID"
-        echo "Port 22 refermé"
-      fi
-
-  # Variables GitLab CI/CD → Settings → CI/CD → Variables (Protected + Masked) :
-  # AWS_ACCESS_KEY_ID     — clé IAM (permission EC2 Instance Connect + SG)
-  # AWS_SECRET_ACCESS_KEY — clé secrète IAM
+  # Variables GitLab CI/CD → Settings → CI/CD → Variables :
+  # AWS_ACCESS_KEY_ID     — clé IAM (permission SSM + EC2)  [Masked]
+  # AWS_SECRET_ACCESS_KEY — clé secrète IAM                 [Masked]
   # AWS_DEFAULT_REGION    — eu-west-1
-  # EC2_HOST              — 3.255.126.244
-  # EC2_USER              — ec2-user
-  # EC2_SG_ID             — sg-09896b73bb44d0ac3
   # EC2_INSTANCE_ID       — i-0fc0adfd256c0428d
