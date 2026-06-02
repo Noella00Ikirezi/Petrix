@@ -93,7 +93,7 @@ apiClient.interceptors.response.use(
 // Auth API (2-step MFA)
 export const authApi = {
   signup: async (email?: string, password?: string, firstName?: string, lastName?: string) => {
-    const response = await apiClient.post('/auth/signup', {
+    const response = await apiClient.post('/auth/register', {
       email,
       password,
       first_name: firstName,

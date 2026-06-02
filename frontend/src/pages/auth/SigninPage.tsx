@@ -116,6 +116,7 @@ export default function SignupPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="input mt-1"
                 placeholder="********"
+                autoComplete="new-password"
                 required
               />
             </div>
@@ -131,6 +132,7 @@ export default function SignupPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="input mt-1"
                 placeholder="********"
+                autoComplete="new-password"
                 required
               />
             </div>
