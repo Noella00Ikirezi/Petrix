@@ -46,6 +46,7 @@ class UserResponse(BaseModel):
     last_name: str | None
     role: str
     is_active: bool
+    must_change_password: bool = False
     last_login: datetime | None = None
     created_at: datetime | None = None
     permissions: List[str] = []
@@ -174,6 +175,7 @@ def user_to_response(user: User) -> UserResponse:
         last_name=user.last_name,
         role=user.role.value,
         is_active=user.is_active,
+        must_change_password=user.must_change_password,
         last_login=user.last_login,
         created_at=user.created_at,
         permissions=permissions,
