@@ -64,6 +64,7 @@ frontend-build:
 
 # ---------------------------------------------------------------------------
 # DEPLOY — déclenché sur push vers main uniquement
+# Utilise EC2 Instance Connect : aucune clé privée stockée dans GitLab
 # ---------------------------------------------------------------------------
 deploy-production:
   stage: deploy
@@ -74,28 +75,32 @@ deploy-production:
     name: production
     url: https://petrix.noellahome.org
   before_script:
-    # Installer outils
-    - apt-get update -qq && apt-get install -y -qq openssh-client rsync awscli curl
+    - apt-get update -qq && apt-get install -y -qq openssh-client rsync curl
+    - pip install -q awscli
 
-    # Configurer la clé SSH de déploiement
-    - mkdir -p ~/.ssh
-    - echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
-    - chmod 600 ~/.ssh/deploy_key
-    - echo "StrictHostKeyChecking no" >> ~/.ssh/config
+    # Générer une clé SSH éphémère (valable 60s via EC2 Instance Connect)
+    - ssh-keygen -t ed25519 -f ~/.ssh/ci_temp_key -N "" -q
+    - echo "StrictHostKeyChecking no" > ~/.ssh/config
 
-    # Ouvrir le port 22 depuis l'IP du runner GitLab CI
+    # Ouvrir le port 22 depuis l'IP du runner
     - RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
-    - echo "Runner IP = $RUNNER_IP"
     - |
       RULE_ID=$(aws --region eu-west-1 ec2 authorize-security-group-ingress \
         --group-id "$EC2_SG_ID" \
         --ip-permissions "[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"${RUNNER_IP}/32\",\"Description\":\"gitlab-ci-runner\"}]}]" \
-        --query 'SecurityGroupRules[0].SecurityGroupRuleId' --output text)
-      echo "SG rule added: $RULE_ID"
+        --query 'SecurityGroupRules[0].SecurityGroupRuleId' --output text 2>/dev/null || echo "already-open")
+      echo "SG rule: $RULE_ID"
       export RUNNER_SG_RULE_ID="$RULE_ID"
 
+    # Pousser la clé éphémère via EC2 Instance Connect (valide 60s)
+    - |
+      aws --region eu-west-1 ec2-instance-connect send-ssh-public-key \
+        --instance-id "$EC2_INSTANCE_ID" \
+        --instance-os-user "$EC2_USER" \
+        --ssh-public-key file://~/.ssh/ci_temp_key.pub
+
   script:
-    # Synchroniser le code vers EC2 (exclut node_modules, .git, __pycache__, etc.)
+    # Synchroniser le code (doit démarrer dans les 60s après send-ssh-public-key)
     - |
       rsync -az --delete \
         --exclude='.git' \
@@ -104,42 +109,39 @@ deploy-production:
         --exclude='*.pyc' \
         --exclude='.env' \
         --exclude='frontend/dist' \
-        -e "ssh -i ~/.ssh/deploy_key" \
+        -e "ssh -i ~/.ssh/ci_temp_key" \
         . ${EC2_USER}@${EC2_HOST}:/home/ec2-user/petrix/
 
-    # Rebuild + restart sur EC2
+    # Rebuild + restart (nouvelle connexion = nouvelle clé éphémère)
     - |
-      ssh -i ~/.ssh/deploy_key ${EC2_USER}@${EC2_HOST} '
+      aws --region eu-west-1 ec2-instance-connect send-ssh-public-key \
+        --instance-id "$EC2_INSTANCE_ID" \
+        --instance-os-user "$EC2_USER" \
+        --ssh-public-key file://~/.ssh/ci_temp_key.pub
+    - |
+      ssh -i ~/.ssh/ci_temp_key ${EC2_USER}@${EC2_HOST} '
         set -e
         cd /home/ec2-user/petrix
-
-        # Pull latest (si git remote configuré sur EC2)
-        # git pull origin main 2>/dev/null || true
-
-        # Rebuild images et relancer les containers prod
-        docker compose -f docker/docker-compose.prod.yml build --no-cache
+        docker compose -f docker/docker-compose.prod.yml build
         docker compose -f docker/docker-compose.prod.yml up -d --remove-orphans
-
-        # Vérifier que les containers sont up
-        echo "=== Containers running ==="
         docker compose -f docker/docker-compose.prod.yml ps
       '
 
   after_script:
-    # Toujours fermer le port 22, même si le deploy a échoué
+    # Fermer le port 22 dans tous les cas
     - |
-      if [ -n "$RUNNER_SG_RULE_ID" ]; then
+      if [ -n "$RUNNER_SG_RULE_ID" ] && [ "$RUNNER_SG_RULE_ID" != "already-open" ]; then
         aws --region eu-west-1 ec2 revoke-security-group-ingress \
           --group-id "$EC2_SG_ID" \
-          --security-group-rule-ids "$RUNNER_SG_RULE_ID" && \
-          echo "SG rule $RUNNER_SG_RULE_ID removed"
+          --security-group-rule-ids "$RUNNER_SG_RULE_ID"
+        echo "Port 22 refermé"
       fi
 
-  # Variables nécessaires dans GitLab CI/CD → Settings → CI/CD → Variables :
-  # EC2_SSH_KEY         — clé privée ED25519 (contenu du fichier /tmp/petrix_deploy_ed25519)
-  # EC2_HOST            — 3.255.126.244
-  # EC2_USER            — ec2-user
-  # EC2_SG_ID           — sg-09896b73bb44d0ac3
-  # AWS_ACCESS_KEY_ID   — clé IAM pour modifier le SG
-  # AWS_SECRET_ACCESS_KEY
-  # AWS_DEFAULT_REGION  — eu-west-1
+  # Variables GitLab CI/CD → Settings → CI/CD → Variables (Protected + Masked) :
+  # AWS_ACCESS_KEY_ID     — clé IAM (permission EC2 Instance Connect + SG)
+  # AWS_SECRET_ACCESS_KEY — clé secrète IAM
+  # AWS_DEFAULT_REGION    — eu-west-1
+  # EC2_HOST              — 3.255.126.244
+  # EC2_USER              — ec2-user
+  # EC2_SG_ID             — sg-09896b73bb44d0ac3
+  # EC2_INSTANCE_ID       — i-0fc0adfd256c0428d
