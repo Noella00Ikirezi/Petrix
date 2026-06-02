@@ -55,12 +55,11 @@ class UserResponse(BaseModel):
 
 
 class UserCreate(BaseModel):
-    """Create user schema with password validation."""
+    """Create user schema — admin fournit email + rôle, mot de passe généré automatiquement."""
     email: EmailStr
-    password: str = Field(..., min_length=12, description="Password must be at least 12 characters")
+    role: UserRole = UserRole.VIEWER
     first_name: str | None = None
     last_name: str | None = None
-    role: UserRole = UserRole.VIEWER
 
 
 class UserUpdate(BaseModel):
@@ -369,11 +368,15 @@ async def get_user(
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     user_data: UserCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_CREATE)),
 ):
-    """Create a new user (requires USER_CREATE permission)."""
-    # Check if email already exists
+    """Invite a user: admin provides email + role, system generates password and sends invitation email."""
+    import secrets
+    import string
+    from app.workers.email_tasks import send_invitation_email_task
+
     existing = db.query(User).filter(User.email == user_data.email).first()
     if existing:
         raise HTTPException(
@@ -381,43 +384,44 @@ async def create_user(
             detail="Email already registered",
         )
 
-    # Validate password strength
-    password = user_data.password
-    if len(password) < 12:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must be at least 12 characters",
-        )
-
-    has_upper = any(c.isupper() for c in password)
-    has_lower = any(c.islower() for c in password)
-    has_digit = any(c.isdigit() for c in password)
-    has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password)
-
-    if not (has_upper and has_lower and has_digit and has_special):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must contain uppercase, lowercase, digit, and special character",
-        )
-
-    # Only admins can create admin users
     if user_data.role == UserRole.ADMIN and current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can create admin users",
         )
 
+    # Générer un mot de passe temporaire sécurisé
+    alphabet = string.ascii_letters + string.digits + "!@#$%&*"
+    temp_password = "".join(secrets.choice(alphabet) for _ in range(16))
+
     user = User(
         email=user_data.email,
-        password_hash=get_password_hash(user_data.password),
+        password_hash=get_password_hash(temp_password),
         first_name=user_data.first_name,
         last_name=user_data.last_name,
         role=user_data.role,
         is_active=True,
+        must_change_password=True,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Envoyer l'email d'invitation avec le mot de passe temporaire
+    display_name = f"{user_data.first_name or ''} {user_data.last_name or ''}".strip() or user_data.email
+    origin = request.headers.get("origin", "https://petrix.noellahome.org")
+    login_url = f"{origin}/login"
+
+    try:
+        send_invitation_email_task.delay(
+            user_data.email,
+            display_name,
+            temp_password,
+            user_data.role.value,
+            login_url,
+        )
+    except Exception:
+        pass  # Ne pas bloquer la création si l'email échoue
 
     return user_to_response(user)
 

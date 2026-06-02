@@ -588,8 +588,6 @@ function CreateUserModal({
 }) {
   const [formData, setFormData] = useState({
     email: '',
-    password: '',
-    confirmPassword: '',
     first_name: '',
     last_name: '',
     role: 'viewer',
@@ -598,18 +596,9 @@ function CreateUserModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.password !== formData.confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
-    if (formData.password.length < 12) {
-      toast.error('Password must be at least 12 characters');
-      return;
-    }
-
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/users/`, {
+      const res = await fetch(`/api/v1/users/`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -617,7 +606,6 @@ function CreateUserModal({
         },
         body: JSON.stringify({
           email: formData.email,
-          password: formData.password,
           first_name: formData.first_name || null,
           last_name: formData.last_name || null,
           role: formData.role,
@@ -625,25 +613,28 @@ function CreateUserModal({
       });
 
       if (res.ok) {
-        toast.success('User created successfully');
+        toast.success('Invitation envoyée — un email avec le mot de passe temporaire a été envoyé');
         onSuccess();
       } else {
         const data = await res.json();
-        toast.error(data.detail || 'Failed to create user');
+        toast.error(data.detail || 'Échec de la création');
       }
     } catch {
-      toast.error('Failed to create user');
+      toast.error('Échec de la création');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Modal title="Create New User" onClose={onClose}>
+    <Modal title="Inviter un utilisateur" onClose={onClose}>
+      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+        Un email sera envoyé avec un mot de passe temporaire. L'utilisateur devra le changer à la première connexion.
+      </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label">First Name</label>
+            <label className="label">Prénom</label>
             <input
               type="text"
               value={formData.first_name}
@@ -652,7 +643,7 @@ function CreateUserModal({
             />
           </div>
           <div>
-            <label className="label">Last Name</label>
+            <label className="label">Nom</label>
             <input
               type="text"
               value={formData.last_name}
@@ -668,35 +659,12 @@ function CreateUserModal({
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className="input mt-1"
+            placeholder="utilisateur@entreprise.com"
             required
           />
         </div>
         <div>
-          <label className="label">Password *</label>
-          <input
-            type="password"
-            value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            className="input mt-1"
-            required
-            minLength={12}
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Min 12 chars with uppercase, lowercase, digit, and special character
-          </p>
-        </div>
-        <div>
-          <label className="label">Confirm Password *</label>
-          <input
-            type="password"
-            value={formData.confirmPassword}
-            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-            className="input mt-1"
-            required
-          />
-        </div>
-        <div>
-          <label className="label">Role *</label>
+          <label className="label">Rôle *</label>
           <select
             value={formData.role}
             onChange={(e) => setFormData({ ...formData, role: e.target.value })}
@@ -704,17 +672,17 @@ function CreateUserModal({
           >
             {roles.map((role) => (
               <option key={role.value} value={role.value}>
-                {role.name} - {role.description}
+                {role.name} — {role.description}
               </option>
             ))}
           </select>
         </div>
         <div className="flex justify-end gap-3 pt-4">
           <button type="button" onClick={onClose} className="btn btn-secondary btn-md">
-            Cancel
+            Annuler
           </button>
           <button type="submit" disabled={loading} className="btn btn-primary btn-md">
-            {loading ? 'Creating...' : 'Create User'}
+            {loading ? 'Envoi...' : 'Envoyer l\'invitation'}
           </button>
         </div>
       </form>

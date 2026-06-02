@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import Layout from '@/components/layout/Layout';
 import LoginPage from '@/pages/auth/LoginPage';
 import SignupPage from '@/pages/auth/SigninPage';
+import ChangePasswordPage from '@/pages/auth/ChangePasswordPage';
 import HomePage from '@/pages/HomePage';
 import DashboardPage from '@/pages/DashboardPage';
 import AssetsPage from '@/pages/assets/AssetsPage';
@@ -35,6 +36,7 @@ function App() {
       <Route path="/" element={<HomePage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      <Route path="/change-password" element={<ChangePasswordPage />} />
       <Route
         path="/dashboard"
         element={

@@ -52,6 +52,7 @@ class AuthTokens(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    must_change_password: bool = False
 
 
 class RefreshRequest(BaseModel):
@@ -247,7 +248,11 @@ async def verify_otp_endpoint(
         user_agent=ua[:255] if ua else None,
     )
 
-    return AuthTokens(access_token=access_token, refresh_token=refresh_token)
+    return AuthTokens(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        must_change_password=user.must_change_password,
+    )
 
 
 @router.post("/refresh", response_model=AuthTokens)
@@ -366,6 +371,23 @@ async def register(
         role=user.role.value,
         is_active=user.is_active,
     )
+
+
+@router.post("/change-password")
+async def change_password(
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Change password — obligatoire à la première connexion si must_change_password=True."""
+    new_password = data.get("new_password", "")
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit faire au moins 8 caractères")
+
+    current_user.password_hash = get_password_hash(new_password)
+    current_user.must_change_password = False
+    db.commit()
+    return {"message": "Mot de passe mis à jour"}
 
 
 @router.get("/me", response_model=UserResponse)

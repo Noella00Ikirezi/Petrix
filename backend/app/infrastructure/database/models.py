@@ -96,6 +96,7 @@ class User(Base):
         Enum(UserRole), default=UserRole.VIEWER, nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     # Security
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)

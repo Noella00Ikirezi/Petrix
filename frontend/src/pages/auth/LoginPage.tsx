@@ -49,7 +49,7 @@ export default function LoginPage() {
         }
 
         toast.success('Connecté');
-        navigate('/dashboard');
+        navigate(data.must_change_password ? '/change-password' : '/dashboard');
         return;
       }
 
