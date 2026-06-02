@@ -1013,8 +1013,8 @@ function Modal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-8">
+      <div className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h2>
           <button
