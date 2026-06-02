@@ -30,10 +30,22 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const { mfa_token } = await authApi.login(email, password);
-      setMfaToken(mfa_token);
+      const data = await authApi.login(email, password);
+
+      // MFA désactivé → tokens directs
+      if (data.access_token) {
+        useAuthStore.getState().setToken(data.access_token);
+        const user = await authApi.getMe();
+        setAuth(data.access_token, data.refresh_token, user);
+        toast.success('Connecté');
+        navigate('/dashboard');
+        return;
+      }
+
+      // MFA activé → phase OTP
+      setMfaToken(data.mfa_token);
       setPhase('otp');
-      toast.success('Code sent to your email');
+      toast.success('Code envoyé sur votre email');
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       toast.error(err.response?.data?.detail || 'Login failed');

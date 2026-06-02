@@ -137,6 +137,28 @@ async def login(
             detail=f"Account locked. Try again in {remaining} minutes.",
         )
 
+    # Si MFA désactivé → retourner les tokens directement
+    if not settings.mfa_enabled:
+        user.failed_login_attempts = 0
+        user.last_login = datetime.utcnow()
+        db.commit()
+        access_token = create_token(data={"sub": str(user.id)}, token_type="access")
+        refresh_token = create_token(data={"sub": str(user.id)}, token_type="refresh")
+        refresh_payload = decode_token(refresh_token)
+        if refresh_payload and refresh_payload.get("jti"):
+            store_refresh_token(
+                refresh_payload["jti"],
+                str(user.id),
+                settings.refresh_token_expire_days * 86400,
+            )
+        from fastapi.responses import JSONResponse
+        return JSONResponse(content={
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "mfa_bypass": True,
+        })
+
     # Generate and store OTP
     otp_code = _generate_otp()
     otp_ttl = settings.mfa_token_expire_minutes * 60

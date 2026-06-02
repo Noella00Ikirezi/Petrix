@@ -75,9 +75,10 @@ class Settings(BaseSettings):
     otp_length: int = 6
     max_failed_login_attempts: int = 5
     account_lockout_minutes: int = 30
+    mfa_enabled: bool = True
 
     # Admin user (created on first run)
-    admin_email: str = "admin@petrix.local"
+    admin_email: str = "nikirezi@outlook.fr"
     admin_password: str = ""
 
 
