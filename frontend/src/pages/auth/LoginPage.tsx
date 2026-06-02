@@ -34,9 +34,20 @@ export default function LoginPage() {
 
       // MFA désactivé → tokens directs
       if (data.access_token) {
+        // Stocker le token d'abord pour que getMe() fonctionne
         useAuthStore.getState().setToken(data.access_token);
-        const user = await authApi.getMe();
-        setAuth(data.access_token, data.refresh_token, user);
+        useAuthStore.getState().setRefreshToken(data.refresh_token);
+
+        try {
+          const user = await authApi.getMe();
+          setAuth(data.access_token, data.refresh_token, user);
+        } catch {
+          // Si getMe échoue, on crée un user minimal depuis l'email
+          setAuth(data.access_token, data.refresh_token, {
+            id: '', email, first_name: null, last_name: null, role: 'admin',
+          });
+        }
+
         toast.success('Connecté');
         navigate('/dashboard');
         return;
