@@ -55,7 +55,7 @@ class DashboardResponse(BaseModel):
     vuln_trends: list[VulnTrend]
 
 
-@router.get("/", response_model=DashboardResponse)
+@router.get("", response_model=DashboardResponse)
 async def get_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_VIEW)),

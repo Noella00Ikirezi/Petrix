@@ -36,7 +36,7 @@ class AuditLogList(BaseModel):
     total: int
 
 
-@router.get("/", response_model=AuditLogList)
+@router.get("", response_model=AuditLogList)
 async def list_audit_logs(
     skip: int = 0,
     limit: int = 50,

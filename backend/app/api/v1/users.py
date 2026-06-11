@@ -309,7 +309,7 @@ async def get_user_stats(
 # USER CRUD ENDPOINTS
 # ===================
 
-@router.get("/", response_model=List[UserResponse])
+@router.get("", response_model=List[UserResponse])
 async def list_users(
     skip: int = 0,
     limit: int = 100,
@@ -384,7 +384,7 @@ async def get_user(
     return user_to_response(user)
 
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     user_data: UserCreate,
     request: Request,

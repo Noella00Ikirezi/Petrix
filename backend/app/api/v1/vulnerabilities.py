@@ -82,7 +82,7 @@ class VulnListResponse(BaseModel):
 
 
 # Endpoints
-@router.get("/", response_model=VulnListResponse)
+@router.get("", response_model=VulnListResponse)
 async def list_vulnerabilities(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
@@ -199,7 +199,7 @@ async def get_vulnerability(
     )
 
 
-@router.post("/", response_model=VulnResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=VulnResponse, status_code=status.HTTP_201_CREATED)
 async def create_vulnerability(
     vuln_data: VulnCreate,
     db: Session = Depends(get_db),
