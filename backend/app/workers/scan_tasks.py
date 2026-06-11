@@ -10,22 +10,23 @@ from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.database.models import Scan, ScanStatus, ScanType
 
 
-def _get_local_networks() -> list[str]:
-    """Auto-detect local network CIDRs via ip route (blackbox discovery)."""
-    try:
-        result = subprocess.run(
-            ["ip", "route", "show", "scope", "link"],
-            capture_output=True, text=True, timeout=5,
-        )
-        networks = []
-        for line in result.stdout.splitlines():
-            parts = line.split()
-            if parts and "/" in parts[0] and not parts[0].startswith("127") and not parts[0].startswith("172."):
-                networks.append(parts[0])
-        return networks if networks else []
-    except Exception as e:
-        logger.warning(f"Could not detect local networks: {e}")
-        return []
+def _get_blackbox_targets() -> list[dict]:
+    """
+    Determine targets for blackbox scan:
+    1. Server's own public IP (what it exposes to internet)
+    2. Curated free public test targets (legal to scan)
+    """
+    from app.scanners.rich_scan import get_server_public_ip, PUBLIC_TEST_TARGETS
+    targets = []
+
+    public_ip = get_server_public_ip()
+    if public_ip:
+        targets.append({"type": "ip", "value": public_ip, "label": f"Serveur (IP publique: {public_ip})"})
+
+    for t in PUBLIC_TEST_TARGETS:
+        targets.append({"type": "hostname", "value": t["value"], "label": t["label"]})
+
+    return targets
 
 
 def _utcnow():
@@ -99,15 +100,14 @@ def execute_scan(self, scan_id: str) -> dict:
 
         from app.scanners.network_discovery import discover_network
 
-        # Blackbox mode: auto-detect local subnets if no targets provided
+        # Blackbox mode: no targets → scan server's public IP + free test targets
         targets = scan.targets or []
         if not targets or all(not t.get("value") for t in targets):
-            local_nets = _get_local_networks()
-            log(f"Blackbox mode — auto-detected networks: {local_nets}")
-            targets = [{"type": "subnet", "value": net} for net in local_nets]
-            # Persist detected targets so the UI can show them
+            blackbox_targets = _get_blackbox_targets()
+            log(f"Blackbox mode — targets: {[t['value'] for t in blackbox_targets]}")
+            targets = blackbox_targets
             updated_config = dict(scan.config or {})
-            updated_config["auto_detected_networks"] = local_nets
+            updated_config["blackbox_targets"] = [t["value"] for t in targets]
             _update_scan(db, scan, targets=targets, config=updated_config)
 
         all_discovered: list = []
@@ -142,74 +142,76 @@ def execute_scan(self, scan_id: str) -> dict:
         log(f"Discovery done: {len(all_discovered)} host(s) found")
         _update_scan(db, scan, progress=30, phases_completed=["discovery"])
 
-        # ── Phase 2: Port scan (skip for DISCOVERY type) ──────────────────
+        # ── Phase 2: Rich deep scan (skip for DISCOVERY type) ────────────
         all_findings: list[dict] = []
         host_results: list[dict] = []
 
         if scan.scan_type != ScanType.DISCOVERY:
             _update_scan(db, scan, current_phase="port_scan", progress=35)
 
-            try:
-                from app.pentest.scanners.nmap_scanner import NmapScanner
-                nmap_scanner = NmapScanner()
-            except Exception as e:
-                log(f"Nmap init failed: {e}")
-                nmap_scanner = None
+            from app.scanners.rich_scan import rich_scan_host, RICH_PORTS
+            from app.pentest.scanners.vuln_scanner import get_hardening_hint
 
-            config = scan.config or {}
-            ports = config.get("ports", "1-1000")
-            aggressive = scan.scan_type == ScanType.FULL
-
-            step = 30 / max(len(all_discovered), 1)
+            step = 55 / max(len(all_discovered), 1)
 
             for idx, discovered in enumerate(all_discovered):
                 ip = discovered.ip
-                log(f"Port scan on {ip} ({idx+1}/{len(all_discovered)})...")
+                log(f"Rich scan on {ip} ({idx+1}/{len(all_discovered)})...")
+
+                try:
+                    rich = rich_scan_host(ip, callback=log)
+                except Exception as e:
+                    log(f"Rich scan failed on {ip}: {e}")
+                    rich = {"ip": ip, "hostname": None, "os": None, "open_ports": []}
 
                 host_entry: dict = {
                     "ip": ip,
                     "mac": discovered.mac,
-                    "hostname": discovered.hostname,
+                    "hostname": rich.get("hostname") or discovered.hostname,
+                    "os": rich.get("os"),
                     "open_ports": [],
                 }
 
-                if nmap_scanner:
-                    try:
-                        host = nmap_scanner.scan_host(
-                            ip, ports=ports, aggressive=aggressive, callback=log
-                        )
-                        host_entry["hostname"] = host.hostname or discovered.hostname
-                        host_entry["os"] = host.os
+                for p in rich.get("open_ports", []):
+                    svc = p.get("service", "")
+                    port_num = p.get("port", 0)
+                    severity = _classify_port_finding(port_num, svc)
+                    hardening = get_hardening_hint(port_num, svc)
 
-                        for port in host.ports:
-                            from app.pentest.scanners.models import PortState
-                            if port.state != PortState.OPEN:
-                                continue
+                    # Build rich description
+                    parts = [p.get("product", "")]
+                    if p.get("banner"):
+                        parts.append(f"Banner: {p['banner']}")
+                    if p.get("http_title"):
+                        parts.append(f"Page: {p['http_title']}")
+                    if p.get("ssl_subject"):
+                        parts.append(f"SSL: {p['ssl_subject']}")
+                    if p.get("extra"):
+                        parts.extend(p["extra"])
+                    description = " | ".join(filter(None, parts))
 
-                            service_name = port.service.name if port.service else ""
-                            severity = _classify_port_finding(port.number, service_name)
-
-                            port_info = {
-                                "port": port.number,
-                                "protocol": port.protocol.value,
-                                "service": service_name,
-                                "product": port.service.product if port.service else None,
-                                "version": port.service.version if port.service else None,
-                                "severity": severity,
-                            }
-                            host_entry["open_ports"].append(port_info)
-                            all_findings.append({
-                                "host": ip,
-                                "severity": severity,
-                                "title": f"Open port {port.number}/{port.protocol.value} ({service_name})",
-                                "description": (
-                                    f"Service: {port.service.product or service_name} "
-                                    f"{port.service.version or ''}".strip()
-                                    if port.service else ""
-                                ),
-                            })
-                    except Exception as e:
-                        log(f"Port scan failed on {ip}: {e}")
+                    port_info = {
+                        "port": port_num,
+                        "protocol": p.get("protocol", "tcp"),
+                        "service": svc,
+                        "product": p.get("product"),
+                        "banner": p.get("banner"),
+                        "http_title": p.get("http_title"),
+                        "http_headers": p.get("http_headers", {}),
+                        "ssl_subject": p.get("ssl_subject"),
+                        "ssl_expiry": p.get("ssl_expiry"),
+                        "ssh_keys": p.get("ssh_keys", []),
+                        "extra": p.get("extra", []),
+                        "severity": severity,
+                    }
+                    host_entry["open_ports"].append(port_info)
+                    all_findings.append({
+                        "host": ip,
+                        "severity": severity,
+                        "title": f"Port {port_num}/{p.get('protocol','tcp')} — {svc} {p.get('product','')!s}".strip(" —"),
+                        "description": description,
+                        "hardening": hardening,
+                    })
 
                 host_results.append(host_entry)
                 progress = 35 + int(step * (idx + 1))

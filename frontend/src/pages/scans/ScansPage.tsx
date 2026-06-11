@@ -284,16 +284,30 @@ function FindingsPanel({ data }: { data: { hosts: HostResult[]; findings: Findin
                 </p>
                 {host.os && <p className="text-xs text-gray-500">OS: {host.os}</p>}
                 {host.open_ports && host.open_ports.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
+                  <div className="mt-2 space-y-1">
                     {host.open_ports.map((p, j) => (
-                      <span key={j} className={`rounded px-1.5 py-0.5 font-mono text-xs ${
-                        p.severity === 'critical' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                        : p.severity === 'high' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
-                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                      }`}>
-                        {p.port}/{p.protocol}
-                        {p.service && ` ${p.service}`}
-                      </span>
+                      <div key={j} className="text-xs">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className={`rounded px-1.5 py-0.5 font-mono font-medium ${
+                            p.severity === 'critical' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                            : p.severity === 'high' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
+                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                          }`}>
+                            {p.port}/{p.protocol}
+                          </span>
+                          <span className="text-gray-600 dark:text-gray-400">{p.service}</span>
+                          {p.product && <span className="text-gray-400">{p.product}</span>}
+                          {p.http_title && <span className="italic text-blue-600 dark:text-blue-400">"{p.http_title}"</span>}
+                          {p.ssl_subject && <span className="text-green-600 dark:text-green-400">🔒 {p.ssl_subject}</span>}
+                        </div>
+                        {p.banner && <p className="ml-1 font-mono text-gray-400">↳ {p.banner}</p>}
+                        {p.ssh_keys && p.ssh_keys.length > 0 && (
+                          <p className="ml-1 text-purple-600 dark:text-purple-400">↳ SSH keys: {p.ssh_keys.map(k => k.type).join(', ')}</p>
+                        )}
+                        {p.extra && p.extra.map((e, k) => (
+                          <p key={k} className="ml-1 text-red-500">⚠ {e}</p>
+                        ))}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -342,7 +356,20 @@ interface HostResult {
   ip: string;
   hostname?: string;
   os?: string;
-  open_ports: { port: number; protocol: string; service: string; product?: string; version?: string; severity: string }[];
+  open_ports: {
+    port: number;
+    protocol: string;
+    service: string;
+    product?: string;
+    banner?: string;
+    http_title?: string;
+    http_headers?: Record<string, string>;
+    ssl_subject?: string;
+    ssl_expiry?: string;
+    ssh_keys?: { type: string; key: string }[];
+    extra?: string[];
+    severity: string;
+  }[];
 }
 
 interface Finding {
@@ -521,12 +548,31 @@ function CreateScanModal({ onClose }: { onClose: () => void }) {
 
           {isBlackbox ? (
             <div className="rounded-md bg-blue-50 px-3 py-3 text-sm text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
-              <p className="font-medium">Mode blackbox</p>
-              <p className="mt-1 text-xs">Le serveur détecte automatiquement les sous-réseaux locaux et scanne tous les hôtes actifs. Aucune IP requise.</p>
+              <p className="font-medium">Mode blackbox — aucune IP requise</p>
+              <p className="mt-1 text-xs">
+                Scan de l'IP publique du serveur + cibles de test gratuites officielles :<br />
+                <span className="font-mono">scanme.nmap.org</span>, <span className="font-mono">testphp.vulnweb.com</span>, <span className="font-mono">testasp.vulnweb.com</span>
+              </p>
+              <p className="mt-1 text-xs opacity-75">Extraction : ports, banières, SSL, HTTP headers, OS, SSH keys, CVEs</p>
             </div>
           ) : (
             <div>
               <label className="label">Cible (IP / hostname / CIDR)</label>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {[
+                  { label: 'scanme.nmap.org', value: 'scanme.nmap.org' },
+                  { label: 'testphp.vulnweb.com', value: 'testphp.vulnweb.com' },
+                ].map((preset) => (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, target: preset.value })}
+                    className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
               <input
                 type="text"
                 value={formData.target}
