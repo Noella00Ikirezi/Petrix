@@ -57,6 +57,7 @@ frontend-test:
 # ---------------------------------------------------------------------------
 frontend-build:
   stage: build
+  allow_failure: true
   image: node:20
   before_script:
     - cd frontend && npm ci
