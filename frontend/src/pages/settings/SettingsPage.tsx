@@ -166,7 +166,10 @@ function SecuritySettings() {
       const res = await fetch('/api/v1/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ new_password: form.new_password }),
+        body: JSON.stringify({
+          current_password: form.current_password,
+          new_password: form.new_password,
+        }),
       });
       if (res.ok) {
         toast.success('Mot de passe changé avec succès');
@@ -186,6 +189,17 @@ function SecuritySettings() {
     <div className="card">
       <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">Changer le mot de passe</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="label">Mot de passe actuel</label>
+          <input
+            type="password"
+            value={form.current_password}
+            onChange={(e) => setForm({ ...form, current_password: e.target.value })}
+            className="input mt-1"
+            autoComplete="current-password"
+            required
+          />
+        </div>
         <div>
           <label className="label">Nouveau mot de passe</label>
           <input

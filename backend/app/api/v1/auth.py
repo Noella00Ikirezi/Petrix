@@ -379,10 +379,19 @@ async def change_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Change password — obligatoire à la première connexion si must_change_password=True."""
+    """Change password. Si must_change_password=True, current_password n'est pas requis."""
     new_password = data.get("new_password", "")
+    current_password = data.get("current_password", "")
+
     if len(new_password) < 8:
         raise HTTPException(status_code=400, detail="Le mot de passe doit faire au moins 8 caractères")
+
+    # Vérifier l'ancien mot de passe sauf lors du changement forcé (première connexion)
+    if not current_user.must_change_password:
+        if not current_password:
+            raise HTTPException(status_code=400, detail="Le mot de passe actuel est requis")
+        if not verify_password(current_password, current_user.password_hash):
+            raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
 
     current_user.password_hash = get_password_hash(new_password)
     current_user.must_change_password = False
