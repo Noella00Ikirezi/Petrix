@@ -353,6 +353,59 @@ async def get_scan_findings(
     }
 
 
+@router.post("/{scan_id}/agent-results", status_code=status.HTTP_200_OK)
+async def receive_agent_results(
+    scan_id: UUID,
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SCAN_EXECUTE)),
+):
+    """Receive results pushed by a local petrix-agent instance."""
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    updated_config = dict(scan.config or {})
+    updated_config["_results"] = {
+        "hosts": data.get("hosts", []),
+        "findings": data.get("findings", []),
+    }
+    scan.config = updated_config
+    scan.status = ScanStatus.RUNNING
+    db.commit()
+    return {"ok": True}
+
+
+@router.patch("/{scan_id}/agent-complete", status_code=status.HTTP_200_OK)
+async def agent_complete(
+    scan_id: UUID,
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SCAN_EXECUTE)),
+):
+    """Mark an agent-driven scan as completed."""
+    from datetime import datetime
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    summary = data.get("summary", {})
+    score = float(data.get("score", 100))
+    grade = data.get("grade", "A")
+    risk = "low" if score >= 75 else "medium" if score >= 50 else "high"
+
+    scan.status = ScanStatus.COMPLETED
+    scan.findings_summary = summary
+    scan.score = score
+    scan.grade = grade
+    scan.risk_level = risk
+    scan.completed_at = datetime.utcnow()
+    if scan.started_at:
+        scan.duration_seconds = (scan.completed_at - scan.started_at).total_seconds()
+    db.commit()
+    return {"ok": True}
+
+
 # Statistics
 @router.get("/stats/summary")
 async def get_scans_stats(
