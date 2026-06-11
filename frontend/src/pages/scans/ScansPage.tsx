@@ -351,6 +351,9 @@ interface Finding {
   title: string;
   description?: string;
   cve?: string;
+  cvss?: number;
+  source?: string;
+  hardening?: { check_id: string; label: string; module: string } | null;
 }
 
 function FindingRow({ finding }: { finding: Finding }) {
@@ -384,6 +387,12 @@ function FindingRow({ finding }: { finding: Finding }) {
           <p className="mt-1 text-sm font-medium text-gray-900 dark:text-white">{finding.title}</p>
           {finding.description && (
             <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{finding.description}</p>
+          )}
+          {finding.hardening && (
+            <p className="mt-1 flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+              <Shield className="h-3 w-3" />
+              Hardening : {finding.hardening.label}
+            </p>
           )}
         </div>
         <span className="shrink-0 font-mono text-xs text-gray-400">{finding.host}</span>
@@ -438,6 +447,8 @@ function CreateScanModal({ onClose }: { onClose: () => void }) {
   const [formData, setFormData] = useState({ name: '', scan_type: 'discovery', target: '' });
   const queryClient = useQueryClient();
 
+  const isBlackbox = formData.scan_type === 'discovery';
+
   const createMutation = useMutation({
     mutationFn: scansApi.create,
     onSuccess: () => {
@@ -450,25 +461,31 @@ function CreateScanModal({ onClose }: { onClose: () => void }) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const target = formData.target.trim();
-    // Auto-detect target type
-    const type = target.includes('/') ? 'subnet'
-      : /^\d{1,3}(\.\d{1,3}){3}$/.test(target) ? 'ip'
-      : 'hostname';
-    createMutation.mutate({
-      name: formData.name,
-      scan_type: formData.scan_type,
-      targets: [{ type, value: target }],
-    });
+    if (isBlackbox) {
+      // Blackbox: no target — backend auto-detects local subnet
+      createMutation.mutate({
+        name: formData.name,
+        scan_type: formData.scan_type,
+        targets: [],
+      });
+    } else {
+      const target = formData.target.trim();
+      const type = target.includes('/') ? 'subnet'
+        : /^\d{1,3}(\.\d{1,3}){3}$/.test(target) ? 'ip'
+        : 'hostname';
+      createMutation.mutate({
+        name: formData.name,
+        scan_type: formData.scan_type,
+        targets: [{ type, value: target }],
+      });
+    }
   };
 
   const target = formData.target.trim();
-  const targetHint = target.includes('/')
-    ? 'Plage réseau (CIDR) — découverte de tous les hôtes'
-    : /^\d{1,3}(\.\d{1,3}){3}$/.test(target)
-    ? 'Adresse IP unique'
-    : target
-    ? 'Hostname'
+  const targetHint = !isBlackbox && target
+    ? target.includes('/') ? 'Plage réseau (CIDR)'
+      : /^\d{1,3}(\.\d{1,3}){3}$/.test(target) ? 'Adresse IP unique'
+      : 'Hostname'
     : '';
 
   return (
@@ -483,43 +500,51 @@ function CreateScanModal({ onClose }: { onClose: () => void }) {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="input mt-1"
-              placeholder="Audit homelab – Juin 2026"
+              placeholder="Audit réseau – Juin 2026"
               required
             />
           </div>
+
           <div>
-            <label className="label">Type de scan</label>
+            <label className="label">Mode</label>
             <select
               value={formData.scan_type}
-              onChange={(e) => setFormData({ ...formData, scan_type: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, scan_type: e.target.value, target: '' })}
               className="input mt-1"
             >
-              <option value="discovery">Découverte — hôtes actifs seulement</option>
-              <option value="vulnerability">Vulnérabilités — ports + CVEs</option>
-              <option value="full">Complet — découverte + ports + CVEs</option>
+              <option value="discovery">Blackbox — découverte réseau local automatique</option>
+              <option value="port_scan">Greybox — scan de ports (IP cible)</option>
+              <option value="vulnerability">Greybox — ports + CVEs (IP cible)</option>
+              <option value="full">Greybox complet — découverte + ports + CVEs</option>
             </select>
           </div>
-          <div>
-            <label className="label">Cible</label>
-            <input
-              type="text"
-              value={formData.target}
-              onChange={(e) => setFormData({ ...formData, target: e.target.value })}
-              className="input mt-1"
-              placeholder="192.168.1.0/24 ou 10.0.0.1 ou mon-serveur.local"
-              required
-            />
-            {targetHint && (
-              <p className="mt-1 text-xs text-primary-600 dark:text-primary-400">{targetHint}</p>
-            )}
-          </div>
-          <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
-            Le scan utilise Scapy (ARP/ICMP) + nmap. Assurez-vous que la cible est accessible depuis le serveur.
-          </div>
+
+          {isBlackbox ? (
+            <div className="rounded-md bg-blue-50 px-3 py-3 text-sm text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
+              <p className="font-medium">Mode blackbox</p>
+              <p className="mt-1 text-xs">Le serveur détecte automatiquement les sous-réseaux locaux et scanne tous les hôtes actifs. Aucune IP requise.</p>
+            </div>
+          ) : (
+            <div>
+              <label className="label">Cible (IP / hostname / CIDR)</label>
+              <input
+                type="text"
+                value={formData.target}
+                onChange={(e) => setFormData({ ...formData, target: e.target.value })}
+                className="input mt-1"
+                placeholder="192.168.1.10 ou 10.0.0.0/24 ou serveur.local"
+                required
+              />
+              {targetHint && (
+                <p className="mt-1 text-xs text-primary-600 dark:text-primary-400">{targetHint}</p>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn btn-secondary btn-md">Annuler</button>
             <button type="submit" disabled={createMutation.isPending} className="btn btn-primary btn-md">
-              {createMutation.isPending ? 'Création...' : 'Créer le scan'}
+              {createMutation.isPending ? 'Création...' : 'Lancer le scan'}
             </button>
           </div>
         </form>

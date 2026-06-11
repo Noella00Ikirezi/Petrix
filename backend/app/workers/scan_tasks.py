@@ -1,5 +1,6 @@
 """Celery tasks for network scan execution."""
 
+import subprocess
 from datetime import datetime, timezone
 
 from loguru import logger
@@ -7,6 +8,24 @@ from loguru import logger
 from app.workers.celery_app import celery_app
 from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.database.models import Scan, ScanStatus, ScanType
+
+
+def _get_local_networks() -> list[str]:
+    """Auto-detect local network CIDRs via ip route (blackbox discovery)."""
+    try:
+        result = subprocess.run(
+            ["ip", "route", "show", "scope", "link"],
+            capture_output=True, text=True, timeout=5,
+        )
+        networks = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if parts and "/" in parts[0] and not parts[0].startswith("127") and not parts[0].startswith("172."):
+                networks.append(parts[0])
+        return networks if networks else []
+    except Exception as e:
+        logger.warning(f"Could not detect local networks: {e}")
+        return []
 
 
 def _utcnow():
@@ -80,8 +99,19 @@ def execute_scan(self, scan_id: str) -> dict:
 
         from app.scanners.network_discovery import discover_network
 
+        # Blackbox mode: auto-detect local subnets if no targets provided
+        targets = scan.targets or []
+        if not targets or all(not t.get("value") for t in targets):
+            local_nets = _get_local_networks()
+            log(f"Blackbox mode — auto-detected networks: {local_nets}")
+            targets = [{"type": "subnet", "value": net} for net in local_nets]
+            # Persist detected targets so the UI can show them
+            updated_config = dict(scan.config or {})
+            updated_config["auto_detected_networks"] = local_nets
+            _update_scan(db, scan, targets=targets, config=updated_config)
+
         all_discovered: list = []
-        for t in scan.targets or []:
+        for t in targets:
             target_value = t.get("value", "")
             if not target_value:
                 continue
