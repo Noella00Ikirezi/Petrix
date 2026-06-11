@@ -98,7 +98,7 @@ export default function UsersPage() {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [usersRes, rolesRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/api/v1/users/`, { headers }),
+        fetch(`${API_URL}/api/v1/users`, { headers }),
         fetch(`${API_URL}/api/v1/users/roles`, { headers }),
         fetch(`${API_URL}/api/v1/users/stats`, { headers }),
       ]);
@@ -596,7 +596,7 @@ function CreateUserModal({
     e.preventDefault();
     try {
       setLoading(true);
-      const res = await fetch(`/api/v1/users/`, {
+      const res = await fetch(`/api/v1/users`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

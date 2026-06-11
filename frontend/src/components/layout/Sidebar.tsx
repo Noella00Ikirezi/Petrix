@@ -34,7 +34,7 @@ export default function Sidebar() {
         </span>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="flex-1 overflow-y-auto space-y-1 px-3 py-4">
         {navigation.map((item) => (
           <NavLink
             key={item.name}
