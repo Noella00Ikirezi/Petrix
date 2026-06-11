@@ -3,12 +3,11 @@ import uuid
 import traceback
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
 from loguru import logger
 import io
 
@@ -21,16 +20,12 @@ from app.infrastructure.database.smsi_models import (
     SMSIProject,
     QuestionResponse,
     GeneratedDocument,
-    ComplianceFramework,
-    DocumentType,
-    DocumentStatus,
     ProjectStatus,
     SecurityLevel,
-    QuestionType,
 )
 from app.api.v1.deps import get_current_active_user
 from app.infrastructure.database.models import User
-from app.core.permissions import UserRole, Permission
+from app.core.permissions import UserRole
 from app.application.smsi.ai_service import mistral_service
 from app.application.smsi.document_generator import DocumentGeneratorService
 from app.application.smsi.export_service import export_service

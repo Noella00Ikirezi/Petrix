@@ -1,14 +1,11 @@
 """Hardening (HCO) API router — targets, sessions, findings."""
-import uuid
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import get_current_user, require_permission
-from app.core.permissions import Permission
+from app.api.v1.deps import get_current_user
 from app.infrastructure.database import get_db
 from app.infrastructure.database.models import User
 from app.infrastructure.database.hardening_models import (

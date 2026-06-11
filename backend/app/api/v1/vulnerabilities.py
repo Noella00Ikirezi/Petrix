@@ -15,7 +15,7 @@ from app.infrastructure.database.models import (
     VulnStatus,
     User,
 )
-from app.api.v1.deps import get_current_active_user, require_permission
+from app.api.v1.deps import require_permission
 
 router = APIRouter()
 

@@ -8,7 +8,6 @@ import httpx
 
 from app.config import settings
 from app.core.licensing import (
-    LicenseInfo,
     LicenseManager,
     LicenseTier,
     get_current_license,
@@ -244,7 +243,6 @@ async def get_system_stats(
     current_user: User = Depends(require_permission(Permission.SYSTEM_SETTINGS)),
 ):
     """Get system statistics and license limit usage."""
-    from sqlalchemy import func
     from app.infrastructure.database import SessionLocal
     from app.infrastructure.database.models import Asset, User as UserModel, Scan
 

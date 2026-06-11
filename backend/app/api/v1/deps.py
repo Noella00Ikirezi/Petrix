@@ -1,5 +1,4 @@
 """API dependencies - Auth, DB session, permissions."""
-from typing import Generator, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer

@@ -1,6 +1,5 @@
 """Document generation service for SMSI."""
 import uuid
-from datetime import datetime
 from typing import Dict, Any, List, Optional
 from loguru import logger
 
@@ -17,7 +16,7 @@ from app.infrastructure.database.smsi_models import (
     DocumentType,
     ProjectStatus,
 )
-from app.application.smsi.ai_service import mistral_service, AIGenerationResult
+from app.application.smsi.ai_service import mistral_service
 
 
 class DocumentGeneratorService:

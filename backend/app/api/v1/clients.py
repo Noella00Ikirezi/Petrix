@@ -4,9 +4,8 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 from loguru import logger
 
 from app.infrastructure.database import get_async_db
@@ -21,7 +20,6 @@ from app.infrastructure.database.client_requirements_models import (
     ActionStatus,
     RequirementCategory,
     RequirementPriority,
-    EvidenceType,
 )
 from app.infrastructure.database.models import User
 from app.schemas.client_requirements import (
@@ -34,7 +32,6 @@ from app.schemas.client_requirements import (
     RequirementResponse,
     RequirementListResponse,
     AssessmentCreate,
-    AssessmentUpdate,
     AssessmentResponse,
     AssessmentSummary,
     ComplianceRecordUpdate,
@@ -43,7 +40,6 @@ from app.schemas.client_requirements import (
     RemediationActionCreate,
     RemediationActionUpdate,
     RemediationActionResponse,
-    RemediationPlanGenerate,
     RemediationPlanResponse,
     AIAssessmentRequest,
     AIAssessmentResponse,

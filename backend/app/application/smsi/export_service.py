@@ -1,15 +1,11 @@
 """Export service for SMSI documents - Multi-format support with PSSIG styling."""
 import io
-import os
-import tempfile
 from datetime import datetime
-from typing import Dict, Any, Optional, List, BinaryIO
-from pathlib import Path
-import uuid
+from typing import Dict, Any, Optional, List
 
 from loguru import logger
 
-from app.infrastructure.database.smsi_models import GeneratedDocument, DocumentType
+from app.infrastructure.database.smsi_models import GeneratedDocument
 
 
 # PSSIG Color schemes for document types
@@ -456,11 +452,9 @@ generated: {document.created_at.isoformat()}
     async def _export_docx(self, document: GeneratedDocument, organization_name: str = "Organisation") -> tuple[bytes, str]:
         """Export to DOCX format with PSSIG professional styling."""
         from docx import Document as DocxDocument
-        from docx.shared import Inches, Pt, RGBColor, Cm
+        from docx.shared import Pt, RGBColor, Cm
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.enum.table import WD_TABLE_ALIGNMENT
-        from docx.oxml.ns import qn
-        from docx.oxml import OxmlElement
 
         doc = DocxDocument()
 
@@ -618,7 +612,7 @@ generated: {document.created_at.isoformat()}
 
     def _parse_markdown_to_docx_styled(self, doc, markdown_content: str, colors: dict):
         """Parse Markdown content and add to DOCX document with PSSIG styling."""
-        from docx.shared import Pt, RGBColor
+        from docx.shared import RGBColor
 
         def hex_to_rgb(hex_color):
             hex_color = hex_color.lstrip('#')
@@ -696,7 +690,7 @@ generated: {document.created_at.isoformat()}
 
     def _add_table_to_docx_styled(self, doc, table_data: List[List[str]], colors: dict):
         """Add a professionally styled table to the DOCX document."""
-        from docx.shared import Pt, RGBColor
+        from docx.shared import RGBColor
         from docx.oxml.ns import qn
         from docx.oxml import OxmlElement
 
@@ -738,7 +732,6 @@ generated: {document.created_at.isoformat()}
 
     def _parse_markdown_to_docx(self, doc, markdown_content: str):
         """Parse Markdown content and add to DOCX document."""
-        from docx.shared import Pt
 
         lines = markdown_content.split('\n')
         in_table = False

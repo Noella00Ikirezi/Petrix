@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.core.security import get_password_hash, verify_password
-from app.core.permissions import Permission, UserRole, ROLE_PERMISSIONS, get_role_permissions, has_permission
+from app.core.permissions import Permission, UserRole, get_role_permissions, has_permission
 from app.core.audit import log_audit_event
 from app.infrastructure.database import get_db
 from app.infrastructure.database.models import User

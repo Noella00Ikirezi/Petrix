@@ -15,11 +15,9 @@ import uuid
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from app.infrastructure.database.smsi_models import (
     SMSIProject,
-    DocumentTemplate,
     GeneratedDocument,
     DocumentStatus,
     DocumentType,
@@ -27,7 +25,6 @@ from app.infrastructure.database.smsi_models import (
 )
 from app.application.smsi.template_library import TEMPLATES, fill_template
 from app.application.smsi.document_packs import (
-    DOCUMENT_PACKS,
     get_pack_proposal,
     filter_documents_by_frameworks,
 )

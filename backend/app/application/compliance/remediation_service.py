@@ -1,7 +1,7 @@
 """Service for generating remediation actions using AI."""
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from loguru import logger
 
 from sqlalchemy.ext.asyncio import AsyncSession

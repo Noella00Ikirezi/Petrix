@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.permissions import Permission
 from app.infrastructure.database import get_db
 from app.infrastructure.database.models import Asset, AssetType, AssetStatus, Severity, User
-from app.api.v1.deps import get_current_active_user, require_permission
+from app.api.v1.deps import require_permission
 
 router = APIRouter()
 

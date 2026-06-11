@@ -1,7 +1,6 @@
 """Celery tasks for network scan execution."""
 
 from datetime import datetime, timezone
-from typing import Optional
 
 from loguru import logger
 

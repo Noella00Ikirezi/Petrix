@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, and_
-from sqlalchemy.orm import selectinload
 
 from app.infrastructure.database.smsi_models import (
     GeneratedDocument,
