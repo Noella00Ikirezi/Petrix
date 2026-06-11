@@ -3,7 +3,6 @@ import {
   Server,
   Shield,
   Scan,
-  AlertTriangle,
   TrendingUp,
   Activity,
 } from 'lucide-react';

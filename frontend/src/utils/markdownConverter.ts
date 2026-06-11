@@ -33,7 +33,7 @@ const turndownService = new TurndownService({
 // Add table support to Turndown
 turndownService.addRule('table', {
   filter: 'table',
-  replacement: function (content, node) {
+  replacement: function (_content, node) {
     const table = node as HTMLTableElement;
     const rows: string[][] = [];
 
