@@ -14,6 +14,7 @@ import SettingsPage from '@/pages/settings/SettingsPage';
 import UsersPage from '@/pages/users/UsersPage';
 import HardeningPage from '@/pages/hardening/HardeningPage';
 import AuditLogsPage from '@/pages/audit/AuditLogsPage';
+import AgentPage from '@/pages/agent/AgentPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -33,6 +34,7 @@ function App() {
       <Route path="/vulnerabilities" element={<ProtectedRoute><VulnerabilitiesPage /></ProtectedRoute>} />
       <Route path="/scans" element={<ProtectedRoute><ScansPage /></ProtectedRoute>} />
       <Route path="/hardening" element={<ProtectedRoute><HardeningPage /></ProtectedRoute>} />
+      <Route path="/agent" element={<ProtectedRoute><AgentPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
       <Route path="/audit-logs" element={<ProtectedRoute><AuditLogsPage /></ProtectedRoute>} />

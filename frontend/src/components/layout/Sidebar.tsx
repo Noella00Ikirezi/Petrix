@@ -8,17 +8,19 @@ import {
   Users,
   Settings,
   ClipboardList,
+  Bot,
 } from 'lucide-react';
 
 const navigation = [
-  { name: 'Dashboard',    href: '/dashboard',    icon: LayoutDashboard },
-  { name: 'Assets',       href: '/assets',       icon: Server },
-  { name: 'Scans',        href: '/scans',        icon: Scan },
+  { name: 'Dashboard',      href: '/dashboard',       icon: LayoutDashboard },
+  { name: 'Assets',         href: '/assets',          icon: Server },
+  { name: 'Scans',          href: '/scans',           icon: Scan },
   { name: 'Vulnérabilités', href: '/vulnerabilities', icon: Shield },
-  { name: 'Hardening',    href: '/hardening',    icon: ShieldCheck },
-  { name: 'Utilisateurs', href: '/users',        icon: Users },
-  { name: 'Audit Logs',   href: '/audit-logs',   icon: ClipboardList },
-  { name: 'Paramètres',   href: '/settings',     icon: Settings },
+  { name: 'Hardening',      href: '/hardening',       icon: ShieldCheck },
+  { name: 'Agent',          href: '/agent',           icon: Bot },
+  { name: 'Utilisateurs',   href: '/users',           icon: Users },
+  { name: 'Audit Logs',     href: '/audit-logs',      icon: ClipboardList },
+  { name: 'Paramètres',     href: '/settings',        icon: Settings },
 ];
 
 export default function Sidebar() {

@@ -360,20 +360,51 @@ async def receive_agent_results(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_EXECUTE)),
 ):
-    """Receive results pushed by a local petrix-agent instance."""
+    """Receive results pushed by a local petrix-agent — saves findings and auto-creates assets."""
+    from app.infrastructure.database.models import Asset, AssetType, AssetStatus, Severity as DbSeverity
+
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
 
+    hosts = data.get("hosts", [])
+    findings = data.get("findings", [])
+
+    # Auto-create or update assets for each discovered host
+    assets_created = 0
+    for host in hosts:
+        ip = host.get("ip")
+        if not ip:
+            continue
+        existing = db.query(Asset).filter(Asset.ip_address == ip).first()
+        if not existing:
+            asset = Asset(
+                name=host.get("hostname") or ip,
+                asset_type=AssetType.SERVER,
+                status=AssetStatus.ACTIVE,
+                criticality=DbSeverity.MEDIUM,
+                ip_address=ip,
+                mac_address=host.get("mac"),
+                hostname=host.get("hostname"),
+                os=host.get("os"),
+            )
+            db.add(asset)
+            assets_created += 1
+        else:
+            # Update existing asset with fresh info
+            if host.get("hostname"):
+                existing.hostname = host["hostname"]
+            if host.get("os"):
+                existing.os = host["os"]
+            if host.get("mac"):
+                existing.mac_address = host["mac"]
+
     updated_config = dict(scan.config or {})
-    updated_config["_results"] = {
-        "hosts": data.get("hosts", []),
-        "findings": data.get("findings", []),
-    }
+    updated_config["_results"] = {"hosts": hosts, "findings": findings}
     scan.config = updated_config
     scan.status = ScanStatus.RUNNING
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "assets_created": assets_created}
 
 
 @router.patch("/{scan_id}/agent-complete", status_code=status.HTTP_200_OK)
