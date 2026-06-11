@@ -216,6 +216,10 @@ export const scansApi = {
     const response = await apiClient.get('/scans/stats/summary');
     return response.data;
   },
+  findings: async (id: string) => {
+    const response = await apiClient.get(`/scans/${id}/findings`);
+    return response.data;
+  },
 };
 
 // Pentest API

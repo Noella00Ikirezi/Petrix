@@ -213,7 +213,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {recentScans.map((scan: { id: string; name: string; status: string; grade: string; score: number; created_at: string }) => (
+                {recentScans.map((scan: { id: string; name: string; status: string; grade: string | null; score: number | null; created_at: string }) => (
                   <tr key={scan.id}>
                     <td className="py-3 text-sm text-gray-900 dark:text-white">
                       {scan.name}

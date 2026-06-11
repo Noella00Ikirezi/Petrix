@@ -7,7 +7,12 @@ celery_app = Celery(
     "petrix_workers",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.workers.pentest_tasks", "app.workers.email_tasks", "app.workers.scan_tasks"],
+    include=[
+        "app.workers.pentest_tasks",
+        "app.workers.email_tasks",
+        "app.workers.scan_tasks",
+        "app.workers.hardening_tasks",
+    ],
 )
 
 celery_app.conf.update(
