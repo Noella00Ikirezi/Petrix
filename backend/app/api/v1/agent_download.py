@@ -1,13 +1,10 @@
 """Agent download endpoints — generate tokens and serve install scripts."""
-import secrets
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
 
 from app.core.security import create_token
-from app.infrastructure.database import get_db
 from app.infrastructure.database.models import User
 from app.api.v1.deps import get_current_active_user
 
@@ -20,7 +17,7 @@ INSTALL_DIR = Path(__file__).parent.parent.parent.parent.parent / "agent" / "ins
 async def generate_agent_token(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Generate a short-lived token for the local agent — requires login only."""
+    """Generate an agent token — requires login only."""
     token = create_token(data={"sub": str(current_user.id)}, token_type="access")
     return {"token": token, "user": current_user.email}
 
@@ -30,9 +27,8 @@ async def download_installer(
     os_name: str,
     server_url: str = "https://petrix.noellahome.org",
     token: str = "",
-    current_user: User = Depends(get_current_active_user),
 ):
-    """Serve the OS-specific installer script with server URL and token embedded."""
+    """Serve the OS-specific installer — no auth required, the embedded token protects access."""
     scripts = {
         "linux":   ("install-linux.sh",   "text/x-sh",          "petrix-agent-install-linux.sh"),
         "macos":   ("install-macos.sh",    "text/x-sh",          "petrix-agent-install-macos.sh"),
