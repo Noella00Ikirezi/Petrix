@@ -230,9 +230,8 @@ async def start_scan(
     db.commit()
     db.refresh(scan)
 
-    # TODO: Trigger Celery task for actual scanning
-    # from app.workers.scan_tasks import execute_scan
-    # execute_scan.delay(str(scan.id))
+    from app.workers.scan_tasks import execute_scan
+    execute_scan.delay(str(scan.id))
 
     return ScanResponse(
         id=str(scan.id),
@@ -331,6 +330,27 @@ async def delete_scan(
 
     db.delete(scan)
     db.commit()
+
+
+@router.get("/{scan_id}/findings")
+async def get_scan_findings(
+    scan_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SCAN_VIEW)),
+):
+    """Return detailed host/port findings for a completed scan."""
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    raw = scan.config.get("_results") or {}
+    return {
+        "scan_id": str(scan.id),
+        "status": scan.status,
+        "hosts": raw.get("hosts", []),
+        "findings": raw.get("findings", []),
+        "findings_summary": scan.findings_summary or {},
+    }
 
 
 # Statistics

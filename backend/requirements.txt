@@ -28,6 +28,7 @@ anthropic==0.18.1
 python-nmap==0.7.1
 paramiko>=3.4.0
 pyyaml>=6.0.1
+scapy>=2.5.0
 
 # Reports & Document Generation
 weasyprint==60.2
