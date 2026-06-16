@@ -1,3 +1,0 @@
-discord.py @ git+https://github.com/Rapptz/discord.py.git
-aiohttp==3.9.3
-python-dotenv==1.0.1

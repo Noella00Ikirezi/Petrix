@@ -314,6 +314,7 @@ export default function UsersPage() {
 
       {/* Users Table */}
       <div className="card overflow-hidden p-0">
+        <div className="overflow-y-auto max-h-[600px]">
         <table className="w-full">
           <thead className="bg-gray-50 dark:bg-gray-700">
             <tr>
@@ -339,7 +340,18 @@ export default function UsersPage() {
               <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                 <td className="whitespace-nowrap px-6 py-4">
                   <div className="flex items-center">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900">
+                    <img
+                      src={`https://i.pravatar.cc/40?u=${encodeURIComponent(user.email)}`}
+                      alt={user.first_name || user.email}
+                      className="h-10 w-10 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-700"
+                      onError={(e) => {
+                        const t = e.currentTarget;
+                        t.onerror = null;
+                        t.style.display = 'none';
+                        t.nextElementSibling?.classList.remove('hidden');
+                      }}
+                    />
+                    <div className="hidden h-10 w-10 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900">
                       <span className="text-sm font-medium text-primary-700 dark:text-primary-300">
                         {(user.first_name?.[0] || user.email[0]).toUpperCase()}
                       </span>
@@ -466,8 +478,9 @@ export default function UsersPage() {
           </tbody>
         </table>
         {filteredUsers.length === 0 && (
-          <div className="py-12 text-center text-gray-500">No users found</div>
+          <div className="py-12 text-center text-gray-500">Aucun utilisateur trouvé</div>
         )}
+        </div>
       </div>
 
       {/* Create User Modal */}

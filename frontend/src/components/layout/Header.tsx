@@ -21,6 +21,22 @@ function Avatar({ user }: { user: { first_name: string | null; last_name: string
     : '?';
 
   const color = ROLE_COLORS[user?.role || ''] || 'bg-primary-500';
+  const avatarUrl = user ? `https://i.pravatar.cc/32?u=${encodeURIComponent(user.email)}` : null;
+
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={user?.first_name || 'Avatar'}
+        className="h-8 w-8 rounded-full object-cover ring-2 ring-primary-500/30"
+        onError={(e) => {
+          const t = e.currentTarget;
+          t.onerror = null;
+          t.outerHTML = `<div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-white ${color}">${initials}</div>`;
+        }}
+      />
+    );
+  }
 
   return (
     <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-white ${color}`}>

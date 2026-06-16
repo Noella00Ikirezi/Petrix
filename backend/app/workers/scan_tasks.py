@@ -10,25 +10,6 @@ from app.infrastructure.database.connection import SessionLocal
 from app.infrastructure.database.models import Scan, ScanStatus, ScanType
 
 
-def _get_blackbox_targets() -> list[dict]:
-    """
-    Determine targets for blackbox scan:
-    1. Server's own public IP (what it exposes to internet)
-    2. Curated free public test targets (legal to scan)
-    """
-    from app.scanners.rich_scan import get_server_public_ip, PUBLIC_TEST_TARGETS
-    targets = []
-
-    public_ip = get_server_public_ip()
-    if public_ip:
-        targets.append({"type": "ip", "value": public_ip, "label": f"Serveur (IP publique: {public_ip})"})
-
-    for t in PUBLIC_TEST_TARGETS:
-        targets.append({"type": "hostname", "value": t["value"], "label": t["label"]})
-
-    return targets
-
-
 def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -100,15 +81,15 @@ def execute_scan(self, scan_id: str) -> dict:
 
         from app.scanners.network_discovery import discover_network
 
-        # Blackbox mode: no targets → scan server's public IP + free test targets
-        targets = scan.targets or []
-        if not targets or all(not t.get("value") for t in targets):
-            blackbox_targets = _get_blackbox_targets()
-            log(f"Blackbox mode — targets: {[t['value'] for t in blackbox_targets]}")
-            targets = blackbox_targets
-            updated_config = dict(scan.config or {})
-            updated_config["blackbox_targets"] = [t["value"] for t in targets]
-            _update_scan(db, scan, targets=targets, config=updated_config)
+        targets = [t for t in (scan.targets or []) if t.get("value")]
+        if not targets:
+            _update_scan(
+                db, scan,
+                status=ScanStatus.FAILED,
+                error_message="Aucune cible spécifiée. Ajoutez au moins une IP ou plage réseau.",
+                completed_at=_utcnow(),
+            )
+            return {"error": "no_targets"}
 
         all_discovered: list = []
         for t in targets:

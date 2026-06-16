@@ -1,3 +1,4 @@
+#Requires -RunAsAdministrator
 # Petrix Agent — Installeur Windows (PowerShell)
 # Lancer: powershell -ExecutionPolicy Bypass -File install-windows.ps1 -Server URL -Token TOKEN
 
@@ -7,9 +8,7 @@ param(
 )
 
 Write-Host ""
-Write-Host "╔══════════════════════════════════════╗"
-Write-Host "║  Petrix Agent — Installeur Windows   ║"
-Write-Host "╚══════════════════════════════════════╝"
+Write-Host "Petrix Agent -- Installeur Windows"
 Write-Host ""
 
 # Python via winget
@@ -19,9 +18,9 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 
-# Vérifier Python
+# Verifier Python
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Host "[!] Python non trouvé. Installez Python 3.9+ depuis https://python.org"
+    Write-Host "[!] Python non trouve. Installez Python 3.9+ depuis https://python.org"
     exit 1
 }
 
@@ -39,18 +38,20 @@ python -m pip install --upgrade "git+https://gitlab.com/petrix1/petrix.git#subdi
 $ConfigDir = "$env:USERPROFILE\.petrix-agent"
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
 
-@"
-PETRIX_SERVER=$Server
-PETRIX_TOKEN=$Token
-"@ | Set-Content "$ConfigDir\config.env"
+$configLines = @(
+    "PETRIX_SERVER=$Server",
+    "PETRIX_TOKEN=$Token"
+)
+Set-Content -Path "$ConfigDir\config.env" -Value $configLines -Encoding UTF8
 
 # Raccourci de lancement
-@"
-@echo off
-petrix-agent --server $Server --token $Token %*
-"@ | Set-Content "$ConfigDir\run.bat"
+$batLines = @(
+    "@echo off",
+    "petrix-agent --server $Server --token $Token %*"
+)
+Set-Content -Path "$ConfigDir\run.bat" -Value $batLines -Encoding Default
 
-Write-Host "[✓] Petrix Agent installé."
+Write-Host "[OK] Petrix Agent installe."
 Write-Host "  Lancer: $ConfigDir\run.bat"
 Write-Host ""
 

@@ -32,6 +32,9 @@ dist/
 build/
 *.egg-info/
 
+# Archive (dead code, kept locally only)
+_archive/
+
 # Terraform
 infrastructure/terraform/terraform.tfvars
 infrastructure/terraform/.terraform/

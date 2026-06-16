@@ -38,7 +38,7 @@ class PetrixReporter:
         try:
             machine = socket.gethostname()
             r = httpx.post(
-                f"{self.base}/api/v1/scans/",
+                f"{self.base}/api/v1/scans",
                 headers=self.headers,
                 json={
                     "name": name,

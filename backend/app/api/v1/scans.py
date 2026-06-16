@@ -22,6 +22,7 @@ class ScanTarget(BaseModel):
 
 
 class ScanConfig(BaseModel):
+    model_config = {"extra": "allow"}
     ports: str = "1-1000"
     timing: str = "T3"
     scripts: bool = True
@@ -167,14 +168,22 @@ async def create_scan(
     current_user: User = Depends(require_permission(Permission.SCAN_CREATE)),
 ):
     """Create a new scan."""
+    config_dict = scan_data.config.model_dump()
+    is_agent = config_dict.get("agent", False)
+
     scan = Scan(
         name=scan_data.name,
         scan_type=scan_data.scan_type,
         targets=[t.model_dump() for t in scan_data.targets],
-        config=scan_data.config.model_dump(),
+        config=config_dict,
         scheduled_at=scan_data.scheduled_at,
         created_by_id=current_user.id,
     )
+    if is_agent:
+        scan.status = ScanStatus.RUNNING
+        scan.started_at = datetime.utcnow()
+        scan.current_phase = "agent_scanning"
+
     db.add(scan)
     db.commit()
     db.refresh(scan)
