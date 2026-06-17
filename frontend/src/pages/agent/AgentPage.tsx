@@ -217,34 +217,62 @@ export default function AgentPage() {
             <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">Après le téléchargement</h2>
             {selectedOS === 'windows' ? (
               <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
-                <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800">
-                  Le bouton télécharge un <strong>script PowerShell</strong> pré-configuré avec votre token (valable 30 jours).
-                  Exécutez-le <strong>en tant qu'administrateur</strong> — il installe Python, nmap et l'agent automatiquement.
+
+                {/* Execution policy warning — très visible */}
+                <div className="rounded-lg border-2 border-red-300 bg-red-50 px-4 py-3 dark:bg-red-900/20 dark:border-red-700">
+                  <p className="font-bold text-red-700 dark:text-red-400 mb-1">⚠ Ne pas double-cliquer sur le .ps1</p>
+                  <p className="text-red-700 dark:text-red-300 text-xs">
+                    Windows bloque les scripts non signés par défaut (<em>execution policy</em>).
+                    Utilisez obligatoirement la commande PowerShell ci-dessous avec <code className="bg-red-100 dark:bg-red-900 px-1 rounded">-ExecutionPolicy Bypass</code>.
+                  </p>
                 </div>
 
-                <div>
-                  <p className="font-semibold mb-2">Étapes</p>
-                  <ol className="space-y-2 list-none">
-                    <li>1. Cliquez sur <strong>Télécharger pour Windows</strong> ci-dessus</li>
-                    <li>2. Ouvrez <strong>PowerShell en administrateur</strong> (clic droit → Exécuter en tant qu'administrateur)</li>
-                    <li>3. Collez et exécutez :</li>
-                  </ol>
-                  <code className="mt-2 block rounded bg-gray-100 px-3 py-2 font-mono text-xs dark:bg-gray-800 select-all">
-                    {'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\Downloads\\petrix-agent-installer-windows.ps1"'}
-                  </code>
-                  <li className="mt-2 list-none text-xs text-gray-500">4. Répondre <strong>O</strong> à la question "Lancer un scan maintenant ?"</li>
+                {/* Étapes */}
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-bold text-primary-700 dark:bg-primary-900 dark:text-primary-300">1</span>
+                    <p>Cliquez sur <strong>Télécharger pour Windows</strong> ci-dessus → le fichier <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded text-xs">petrix-agent-install-windows.ps1</code> se télécharge dans vos Téléchargements.</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-bold text-primary-700 dark:bg-primary-900 dark:text-primary-300">2</span>
+                    <p>Ouvrez <strong>PowerShell en administrateur</strong> : touche Windows → tapez <em>powershell</em> → clic droit → <em>Exécuter en tant qu'administrateur</em>.</p>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-bold text-primary-700 dark:bg-primary-900 dark:text-primary-300">3</span>
+                      <p>Copiez-collez cette commande (cliquez pour sélectionner) :</p>
+                    </div>
+                    <code
+                      className="ml-9 block cursor-pointer rounded bg-gray-900 px-3 py-2.5 font-mono text-xs text-green-400 select-all hover:bg-gray-800 transition-colors"
+                      onClick={(e) => { const el = e.currentTarget; const sel = window.getSelection(); const range = document.createRange(); range.selectNodeContents(el); sel?.removeAllRanges(); sel?.addRange(range); }}
+                    >
+                      {'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\Downloads\\petrix-agent-install-windows.ps1"'}
+                    </code>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-bold text-primary-700 dark:bg-primary-900 dark:text-primary-300">4</span>
+                    <p>Répondre <strong>O</strong> (Oui) à la question "Lancer un scan maintenant ?"</p>
+                  </div>
                 </div>
 
-                <div>
-                  <p className="font-semibold mb-2">Alternative — Une seule commande PowerShell admin</p>
-                  <p className="text-xs text-gray-500 mb-1">Cliquez d'abord sur "Télécharger" pour générer le token, puis copiez cette commande :</p>
+                {/* One-liner */}
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                  <p className="font-semibold mb-1">Alternative — Tout-en-un (téléchargement + exécution)</p>
+                  <p className="text-xs text-gray-500 mb-2">
+                    {freshToken
+                      ? 'Copiez cette commande dans PowerShell admin :'
+                      : 'Cliquez d\'abord sur "Télécharger" → la commande apparaît avec votre token.'}
+                  </p>
                   {freshToken ? (
-                    <code className="block rounded bg-gray-100 px-3 py-2 font-mono text-xs dark:bg-gray-800 break-all whitespace-pre-wrap select-all">
-                      {`$f="$env:TEMP\\petrix.ps1"; (New-Object Net.WebClient).DownloadFile("${window.location.origin}/api/v1/agent/download/windows-ps?server_url=${encodeURIComponent(window.location.origin)}&token=${encodeURIComponent(freshToken)}", $f); powershell -ExecutionPolicy Bypass -File $f -Server "${window.location.origin}" -Token "${freshToken}"`}
+                    <code
+                      className="block cursor-pointer rounded bg-gray-900 px-3 py-2.5 font-mono text-xs text-green-400 break-all whitespace-pre-wrap select-all hover:bg-gray-800 transition-colors"
+                      onClick={(e) => { const el = e.currentTarget; const sel = window.getSelection(); const range = document.createRange(); range.selectNodeContents(el); sel?.removeAllRanges(); sel?.addRange(range); }}
+                    >
+                      {`$f="$env:TEMP\\petrix.ps1"; (New-Object Net.WebClient).DownloadFile("${window.location.origin}/api/v1/agent/download/windows-ps?server_url=${encodeURIComponent(window.location.origin)}&token=${encodeURIComponent(freshToken)}", $f); powershell -ExecutionPolicy Bypass -File $f`}
                     </code>
                   ) : (
                     <div className="rounded bg-gray-100 px-3 py-2 text-xs text-gray-400 dark:bg-gray-800 italic">
-                      Cliquez sur "Télécharger" ci-dessus → la commande apparaîtra ici avec votre token.
+                      Cliquer sur "Télécharger" pour générer votre token et voir la commande.
                     </div>
                   )}
                 </div>
