@@ -1,12 +1,15 @@
-"""Agent download endpoints — generate tokens and serve install scripts."""
-from datetime import timedelta
+"""Agent download endpoints — generate tokens, serve install scripts, and manage agent jobs."""
+import uuid as _uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
+from sqlalchemy.orm import Session
 
 from app.core.security import create_token
-from app.infrastructure.database.models import User
+from app.infrastructure.database import get_db
+from app.infrastructure.database.models import Scan, ScanStatus, User
 from app.api.v1.deps import get_current_active_user
 
 router = APIRouter()
@@ -102,3 +105,71 @@ async def download_installer(
         media_type=content_type,
         headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent job polling — market-standard pull model
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/jobs")
+async def get_agent_jobs(
+    ips: str = Query("", description="Comma-separated list of agent IPs"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Agent polls this every N minutes to discover scans assigned to it.
+    A scan is 'assigned' when config.agent_ip matches one of the agent's IPs.
+    Returns PENDING scans only — agent claims them via /jobs/{id}/claim.
+    """
+    agent_ips = {ip.strip() for ip in ips.split(",") if ip.strip()}
+    if not agent_ips:
+        return {"jobs": []}
+
+    pending = (
+        db.query(Scan)
+        .filter(Scan.status == ScanStatus.PENDING)
+        .order_by(Scan.created_at.asc())
+        .all()
+    )
+
+    jobs = []
+    for scan in pending:
+        cfg = scan.config or {}
+        if cfg.get("agent_ip") in agent_ips:
+            jobs.append({
+                "id":        str(scan.id),
+                "name":      scan.name,
+                "scan_type": scan.scan_type.value,
+                "targets":   scan.targets,
+                "config":    cfg,
+            })
+
+    return {"jobs": jobs}
+
+
+@router.post("/jobs/{scan_id}/claim")
+async def claim_agent_job(
+    scan_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Agent claims a pending job — sets it RUNNING without triggering Celery.
+    Only works on PENDING scans; returns 409 if already claimed by another agent.
+    """
+    try:
+        uid = _uuid.UUID(scan_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid scan ID")
+
+    scan = db.query(Scan).filter(Scan.id == uid).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if scan.status != ScanStatus.PENDING:
+        raise HTTPException(status_code=409, detail="Job already claimed or completed")
+
+    scan.status       = ScanStatus.RUNNING
+    scan.started_at   = datetime.utcnow()
+    scan.current_phase = "agent_scanning"
+    db.commit()
+
+    return {"ok": True, "scan_id": scan_id, "name": scan.name}

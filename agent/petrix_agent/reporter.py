@@ -80,6 +80,33 @@ class PetrixReporter:
         except Exception:
             return False
 
+    def get_pending_jobs(self, ips: list[str]) -> list[dict]:
+        """Poll server for scans assigned to this machine (matched by IP)."""
+        try:
+            r = httpx.get(
+                f"{self.base}/api/v1/agent/jobs",
+                headers=self.headers,
+                params={"ips": ",".join(ips)},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                return r.json().get("jobs", [])
+        except Exception:
+            pass
+        return []
+
+    def claim_job(self, scan_id: str) -> bool:
+        """Claim a pending job so no other agent picks it up."""
+        try:
+            r = httpx.post(
+                f"{self.base}/api/v1/agent/jobs/{scan_id}/claim",
+                headers=self.headers,
+                timeout=10,
+            )
+            return r.status_code in (200, 201)
+        except Exception:
+            return False
+
     def register_self(self) -> Optional[str]:
         """Register/update this machine as an asset in Petrix. Returns asset id or None."""
         import platform

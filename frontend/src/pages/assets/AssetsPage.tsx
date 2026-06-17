@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Server, Trash2, Shield } from 'lucide-react';
+import { Plus, Search, Server, Trash2, Shield, Scan } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { assetsApi, hardeningApi } from '@/api/client';
+import { assetsApi, hardeningApi, scansApi } from '@/api/client';
 
 export default function AssetsPage() {
   const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [scanTarget, setScanTarget] = useState<Asset | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -96,14 +97,23 @@ export default function AssetsPage() {
                     <td className="whitespace-nowrap px-6 py-4"><CriticalityBadge criticality={asset.criticality} /></td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-white">{asset.vulnerability_count}</td>
                     <td className="whitespace-nowrap px-6 py-4 text-right">
-                      <button
-                        onClick={() => {
-                          if (confirm('Supprimer cet actif ?')) deleteMutation.mutate(asset.id);
-                        }}
-                        className="rounded p-1 text-gray-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        {asset.ip_address && (
+                          <button
+                            onClick={() => setScanTarget(asset)}
+                            title="Lancer un scan sur cet asset"
+                            className="rounded p-1 text-gray-400 hover:bg-primary-100 hover:text-primary-600 dark:hover:bg-primary-900/40"
+                          >
+                            <Scan className="h-4 w-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => { if (confirm('Supprimer cet actif ?')) deleteMutation.mutate(asset.id); }}
+                          className="rounded p-1 text-gray-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -115,6 +125,9 @@ export default function AssetsPage() {
 
       {showCreateModal && (
         <CreateAssetModal onClose={() => setShowCreateModal(false)} />
+      )}
+      {scanTarget && (
+        <ScanAssetModal asset={scanTarget} onClose={() => setScanTarget(null)} />
       )}
     </div>
   );
@@ -130,6 +143,88 @@ interface Asset {
   hostname: string | null;
   fqdn: string | null;
   vulnerability_count: number;
+  tags?: string[];
+}
+
+const SCAN_TYPES = [
+  { value: 'discovery',     label: 'Découverte',   desc: 'Hôtes actifs sur le réseau (ping/ARP)' },
+  { value: 'compliance',    label: 'Ports',         desc: 'Scan des ports ouverts' },
+  { value: 'vulnerability', label: 'CVEs',          desc: 'Ports + détection de vulnérabilités' },
+  { value: 'full',          label: 'Audit complet', desc: 'Hôtes, ports, CVEs et hardening' },
+];
+
+function ScanAssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+  const [scanType, setScanType] = useState('full');
+  const queryClient = useQueryClient();
+  const hasAgent = (asset.tags || []).includes('agent');
+
+  const createMutation = useMutation({
+    mutationFn: () => scansApi.create({
+      name: `Scan ${asset.name} — ${new Date().toLocaleDateString('fr-FR')}`,
+      scan_type: scanType,
+      targets: [{ type: 'ip', value: asset.ip_address! }],
+      config: { agent_ip: asset.ip_address, agent_mode: true },
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scans'] });
+      toast.success(hasAgent
+        ? "Scan créé — l'agent le récupérera automatiquement (polling toutes les 5 min)"
+        : 'Scan créé dans la file d\'attente'
+      );
+      onClose();
+    },
+    onError: () => toast.error('Échec de la création du scan'),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900">
+            <Scan className="h-5 w-5 text-primary-600 dark:text-primary-400" />
+          </div>
+          <div>
+            <h2 className="font-bold text-gray-900 dark:text-white">Scanner {asset.name}</h2>
+            <p className="text-sm text-gray-500">{asset.ip_address}</p>
+          </div>
+        </div>
+
+        {hasAgent && (
+          <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300">
+            Agent Petrix détecté — le scan sera récupéré et exécuté automatiquement.
+          </div>
+        )}
+        {!hasAgent && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+            Aucun agent sur cette machine — installez l'agent pour l'exécution automatique.
+          </div>
+        )}
+
+        <div className="mb-5 grid grid-cols-2 gap-2">
+          {SCAN_TYPES.map(t => (
+            <button key={t.value} type="button"
+              onClick={() => setScanType(t.value)}
+              className={`rounded-lg border-2 p-3 text-left transition-all ${
+                scanType === t.value
+                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30'
+                  : 'border-gray-200 hover:border-gray-300 dark:border-gray-700'
+              }`}
+            >
+              <div className="text-sm font-medium text-gray-900 dark:text-white">{t.label}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{t.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onClose} className="btn btn-secondary btn-md flex-1">Annuler</button>
+          <button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} className="btn btn-primary btn-md flex-1">
+            {createMutation.isPending ? 'Création...' : 'Lancer le scan'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: string }) {
