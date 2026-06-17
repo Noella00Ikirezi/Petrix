@@ -6,7 +6,7 @@ import {
   Globe, Shield, AlertTriangle, Info,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { scansApi } from '@/api/client';
+import { scansApi, assetsApi } from '@/api/client';
 
 export default function ScansPage() {
   const [search, setSearch] = useState('');
@@ -493,9 +493,23 @@ function GradeBadge({ grade }: { grade: string | null }) {
   return <span className={`badge text-lg font-bold ${styles[grade] || ''}`}>{grade}</span>;
 }
 
+const SCAN_TYPES = [
+  { value: 'discovery',      label: 'Découverte',    desc: 'Détecte les hôtes actifs sur le réseau (ping/ARP)' },
+  { value: 'compliance',     label: 'Ports',         desc: 'Découverte + scan des ports ouverts' },
+  { value: 'vulnerability',  label: 'CVEs',          desc: 'Ports + détection de vulnérabilités connues (CVEs)' },
+  { value: 'full',           label: 'Audit complet', desc: 'Tout : hôtes, ports, CVEs et hardening SSH' },
+];
+
 function CreateScanModal({ onClose }: { onClose: () => void }) {
-  const [formData, setFormData] = useState({ name: '', scan_type: 'discovery', target: '' });
+  const [formData, setFormData] = useState({ name: '', scan_type: 'full', target: '' });
   const queryClient = useQueryClient();
+
+  // Load existing assets for quick-select
+  const { data: assetsData } = useQuery({
+    queryKey: ['assets-for-scan'],
+    queryFn: () => assetsApi.list({ limit: 50 }),
+  });
+  const assets = (assetsData?.items || []).filter((a: { ip_address?: string }) => a.ip_address);
 
   const createMutation = useMutation({
     mutationFn: scansApi.create,
@@ -518,7 +532,7 @@ function CreateScanModal({ onClose }: { onClose: () => void }) {
       : /^\d{1,3}(\.\d{1,3}){3}$/.test(target) ? 'ip'
       : 'hostname';
     createMutation.mutate({
-      name: formData.name,
+      name: formData.name || `Scan ${target}`,
       scan_type: formData.scan_type,
       targets: [{ type, value: target }],
     });
@@ -526,70 +540,96 @@ function CreateScanModal({ onClose }: { onClose: () => void }) {
 
   const target = formData.target.trim();
   const targetHint = target
-    ? target.includes('/') ? 'Plage réseau (CIDR) — tous les hôtes actifs seront scannés'
+    ? target.includes('/') ? 'Plage réseau CIDR — tous les hôtes actifs seront scannés'
       : /^\d{1,3}(\.\d{1,3}){3}$/.test(target) ? 'Adresse IP unique'
-      : 'Hostname'
+      : 'Hostname / FQDN'
     : '';
 
-  const scanTypeHint: Record<string, string> = {
-    discovery:   'Découverte des hôtes actifs sur la cible (ping/ARP)',
-    compliance:  'Découverte + scan de ports ouverts (sans détection CVE)',
-    vulnerability: 'Découverte + ports + détection de CVEs',
-    full:        'Audit complet : découverte, ports, CVEs et hardening SSH',
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
-        <h2 className="mb-4 text-xl font-bold text-gray-900 dark:text-white">Nouveau scan réseau</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800 max-h-[90vh] overflow-y-auto">
+        <h2 className="mb-5 text-xl font-bold text-gray-900 dark:text-white">Nouveau scan réseau</h2>
+        <form onSubmit={handleSubmit} className="space-y-5">
+
+          {/* Scan type grid */}
           <div>
-            <label className="label">Nom du scan</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="input mt-1"
-              placeholder="Audit réseau – Juin 2026"
-              required
-            />
+            <label className="label mb-2">Type de scan</label>
+            <div className="grid grid-cols-2 gap-2">
+              {SCAN_TYPES.map(t => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setFormData(f => ({ ...f, scan_type: t.value }))}
+                  className={`rounded-lg border-2 p-3 text-left transition-all ${
+                    formData.scan_type === t.value
+                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30'
+                      : 'border-gray-200 hover:border-gray-300 dark:border-gray-700'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-gray-900 dark:text-white">{t.label}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t.desc}</div>
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div>
-            <label className="label">Mode</label>
-            <select
-              value={formData.scan_type}
-              onChange={(e) => setFormData({ ...formData, scan_type: e.target.value })}
-              className="input mt-1"
-            >
-              <option value="discovery">Découverte — hôtes actifs</option>
-              <option value="compliance">Scan de ports</option>
-              <option value="vulnerability">Ports + CVEs</option>
-              <option value="full">Audit complet</option>
-            </select>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {scanTypeHint[formData.scan_type]}
-            </p>
-          </div>
-
+          {/* Target */}
           <div>
             <label className="label">Cible à auditer</label>
             <input
               type="text"
               value={formData.target}
-              onChange={(e) => setFormData({ ...formData, target: e.target.value })}
+              onChange={(e) => setFormData(f => ({ ...f, target: e.target.value }))}
               className="input mt-1"
-              placeholder="192.168.10.0/24 ou 192.168.10.50 ou serveur.local"
-              required
+              placeholder="192.168.10.0/24  ou  192.168.10.50  ou  serveur.local"
             />
             {targetHint && (
               <p className="mt-1 text-xs text-primary-600 dark:text-primary-400">{targetHint}</p>
             )}
+
+            {/* Assets quick-select */}
+            {assets.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">Assets connus :</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {assets.map((a: { id: string; ip_address?: string; hostname?: string; name: string }) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setFormData(f => ({
+                        ...f,
+                        target: a.ip_address || '',
+                        name: f.name || `Scan ${a.name}`,
+                      }))}
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                        formData.target === a.ip_address
+                          ? 'bg-primary-500 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      {a.hostname || a.name} {a.ip_address && <span className="opacity-60">({a.ip_address})</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="flex justify-end gap-3 pt-2">
+          {/* Name */}
+          <div>
+            <label className="label">Nom du scan <span className="text-gray-400 font-normal">(optionnel)</span></label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData(f => ({ ...f, name: e.target.value }))}
+              className="input mt-1"
+              placeholder={`Audit ${new Date().toLocaleDateString('fr-FR')}`}
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose} className="btn btn-secondary btn-md">Annuler</button>
-            <button type="submit" disabled={createMutation.isPending} className="btn btn-primary btn-md">
+            <button type="submit" disabled={createMutation.isPending || !formData.target.trim()} className="btn btn-primary btn-md">
               {createMutation.isPending ? 'Création...' : 'Lancer le scan'}
             </button>
           </div>

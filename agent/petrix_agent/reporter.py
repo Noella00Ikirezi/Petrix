@@ -79,3 +79,46 @@ class PetrixReporter:
             return r.status_code in (200, 204)
         except Exception:
             return False
+
+    def register_self(self) -> Optional[str]:
+        """Register/update this machine as an asset in Petrix. Returns asset id or None."""
+        import platform
+        import socket
+
+        # Collect all non-loopback IPv4 addresses
+        ips: list[str] = []
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None):
+                ip = info[4][0]
+                if ":" not in ip and not ip.startswith("127."):
+                    if ip not in ips:
+                        ips.append(ip)
+        except Exception:
+            pass
+        if not ips:
+            try:
+                ip = socket.gethostbyname(socket.gethostname())
+                if not ip.startswith("127."):
+                    ips = [ip]
+            except Exception:
+                pass
+
+        payload = {
+            "hostname": platform.node(),
+            "ips": ips,
+            "os": platform.system(),
+            "os_version": platform.version(),
+            "architecture": platform.machine(),
+        }
+        try:
+            r = httpx.post(
+                f"{self.base}/api/v1/assets/register-self",
+                headers=self.headers,
+                json=payload,
+                timeout=10,
+            )
+            if r.status_code in (200, 201):
+                return r.json().get("id")
+        except Exception:
+            pass
+        return None

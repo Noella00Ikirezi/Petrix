@@ -56,6 +56,15 @@ def main(server: str, token: Optional[str], email: Optional[str], password: Opti
             console.print("[red]Fournissez --token ou --email + --password.[/red]")
             sys.exit(1)
 
+    # Auto-register this machine as an asset before doing anything else
+    if reporter:
+        console.print("[cyan]Enregistrement de la machine dans les assets Petrix...[/cyan]")
+        asset_id = reporter.register_self()
+        if asset_id:
+            console.print(f"  [green]Asset enregistré :[/green] [bold]{asset_id}[/bold]")
+        else:
+            console.print("  [yellow]Enregistrement asset ignoré (serveur non joignable ou token invalide)[/yellow]")
+
     # Determine targets
     if target:
         targets_to_scan = [target]

@@ -158,6 +158,42 @@ Set-Content -Path "$ConfigDir\run.bat" -Value @(
 
 Write-Host ""
 Write-Host "============================================"
+Write-Host "  Enregistrement dans Petrix Assets..."
+Write-Host "============================================"
+
+try {
+    $ips = @((Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+        $_.IPAddress -notmatch "^127\." -and $_.PrefixOrigin -ne "WellKnown"
+    }).IPAddress)
+    $osCaption = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).Caption
+    if (-not $osCaption) { $osCaption = "Windows" }
+
+    $regPayload = @{
+        hostname      = $env:COMPUTERNAME
+        ips           = $ips
+        os            = "Windows"
+        os_version    = $osCaption
+        architecture  = $env:PROCESSOR_ARCHITECTURE
+    } | ConvertTo-Json -Depth 3
+
+    $headers = @{
+        "Authorization" = "Bearer $Token"
+        "Content-Type"  = "application/json"
+    }
+    $reg = Invoke-RestMethod -Uri "$Server/api/v1/assets/register-self" `
+        -Method POST -Headers $headers -Body $regPayload -TimeoutSec 15
+
+    Write-Host "  Machine enregistree dans Petrix ! ID : $($reg.id)" -ForegroundColor Green
+    Write-Host "  IP detectee  : $($ips -join ', ')"
+    Write-Host "  Hostname     : $($env:COMPUTERNAME)"
+    Write-Host "  OS           : $osCaption"
+} catch {
+    Write-Host "  [avertissement] Enregistrement auto echoue : $_" -ForegroundColor Yellow
+    Write-Host "  Le scan pourra tout de meme fonctionner."
+}
+
+Write-Host ""
+Write-Host "============================================"
 Write-Host "  Installation terminee !" -ForegroundColor Green
 Write-Host "============================================"
 Write-Host "  Raccourci : $ConfigDir\run.bat"

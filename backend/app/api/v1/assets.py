@@ -1,4 +1,5 @@
 """Assets management endpoints."""
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.permissions import Permission
 from app.infrastructure.database import get_db
 from app.infrastructure.database.models import Asset, AssetType, AssetStatus, Severity, User
-from app.api.v1.deps import require_permission
+from app.api.v1.deps import require_permission, get_current_active_user
 
 router = APIRouter()
 
@@ -297,7 +298,113 @@ async def delete_asset(
     db.commit()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent self-registration
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AgentSelfRegister(BaseModel):
+    hostname: str
+    ips: List[str]
+    os: str = "Unknown"
+    os_version: str | None = None
+    architecture: str | None = None
+
+
+def _asset_to_response(asset: Asset) -> AssetResponse:
+    return AssetResponse(
+        id=str(asset.id),
+        name=asset.name,
+        asset_type=asset.asset_type,
+        status=asset.status,
+        criticality=asset.criticality,
+        ip_address=asset.ip_address,
+        mac_address=asset.mac_address,
+        hostname=asset.hostname,
+        fqdn=asset.fqdn,
+        os=asset.os,
+        os_version=asset.os_version,
+        location=asset.location,
+        department=asset.department,
+        owner=asset.owner,
+        tags=asset.tags or [],
+        notes=asset.notes,
+        services=asset.services or [],
+        custom_fields=asset.custom_fields or {},
+        vulnerability_count=len(asset.vulnerabilities),
+        created_at=asset.created_at.isoformat(),
+        updated_at=asset.updated_at.isoformat() if asset.updated_at else None,
+    )
+
+
+@router.post("/register-self", response_model=AssetResponse)
+async def register_self(
+    body: AgentSelfRegister,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Called by the Petrix agent at install/run time — upsert the machine as an asset.
+    Works with any valid JWT (including the 30-day agent token).
+    """
+    now = datetime.utcnow()
+
+    # Find existing asset by any of the declared IPs
+    asset: Optional[Asset] = None
+    for ip in body.ips:
+        asset = db.query(Asset).filter(Asset.ip_address == ip).first()
+        if asset:
+            break
+
+    # Determine asset type from OS name
+    os_lower = body.os.lower()
+    if "windows" in os_lower:
+        guessed_type = AssetType.WORKSTATION
+    elif "darwin" in os_lower or "mac" in os_lower:
+        guessed_type = AssetType.WORKSTATION
+    else:
+        guessed_type = AssetType.SERVER
+
+    if asset:
+        # Update existing
+        if body.hostname:
+            asset.name = body.hostname
+            asset.hostname = body.hostname
+        if body.os:
+            asset.os = body.os
+        if body.os_version:
+            asset.os_version = body.os_version
+        if body.ips:
+            asset.ip_address = body.ips[0]
+        asset.last_seen = now
+        # Ensure "agent" tag is present
+        tags = list(asset.tags or [])
+        if "agent" not in tags:
+            tags.append("agent")
+        asset.tags = tags
+    else:
+        primary_ip = body.ips[0] if body.ips else None
+        asset = Asset(
+            name=body.hostname or primary_ip or "Unknown",
+            hostname=body.hostname,
+            ip_address=primary_ip,
+            os=body.os,
+            os_version=body.os_version,
+            asset_type=guessed_type,
+            status=AssetStatus.ACTIVE,
+            criticality=Severity.MEDIUM,
+            tags=["agent"],
+            last_seen=now,
+        )
+        db.add(asset)
+
+    db.commit()
+    db.refresh(asset)
+    return _asset_to_response(asset)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Statistics
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.get("/stats/summary")
 async def get_assets_stats(
     db: Session = Depends(get_db),
