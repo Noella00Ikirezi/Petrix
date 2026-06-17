@@ -72,14 +72,22 @@ export default function AgentPage() {
   const [tosChecked, setTosChecked] = useState(false);
   const [activeTab, setActiveTab] = useState<'install' | 'console'>('install');
 
-  const { data: tokenData, refetch: generateToken, isFetching } = useQuery({
-    queryKey: ['agent-token'],
-    queryFn: async () => {
+  const [freshToken, setFreshToken] = useState<string | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+
+  const generateToken = async (): Promise<string | null> => {
+    setIsFetching(true);
+    try {
       const r = await apiClient.post('/agent/token');
-      return r.data as { token: string; user: string };
-    },
-    enabled: false,
-  });
+      const tok = (r.data as { token: string; user: string }).token;
+      setFreshToken(tok);
+      return tok;
+    } catch {
+      return null;
+    } finally {
+      setIsFetching(false);
+    }
+  };
 
   // Console: poll recent scans for live activity
   const { data: scansData, isLoading: scansLoading } = useQuery({
@@ -98,22 +106,19 @@ export default function AgentPage() {
   };
 
   const doDownload = async () => {
-    let token = tokenData?.token;
-    if (!token) {
-      const result = await generateToken();
-      token = result.data?.token;
-    }
+    const token = await generateToken();
     if (!token) { toast.error('Impossible de générer le token agent'); return; }
 
     const serverUrl = window.location.origin;
-    const ext = selectedOS === 'windows' ? '.exe' : '.sh';
+    const osEndpoint = selectedOS === 'windows' ? 'windows-ps' : selectedOS;
+    const url = `/api/v1/agent/download/${osEndpoint}?server_url=${encodeURIComponent(serverUrl)}&token=${encodeURIComponent(token)}`;
+    const ext = selectedOS === 'windows' ? '.ps1' : '.sh';
     const filename = `petrix-agent-installer-${selectedOS}${ext}`;
-    const url = `/api/v1/agent/download/${selectedOS}?server_url=${encodeURIComponent(serverUrl)}&token=${encodeURIComponent(token)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
     a.click();
-    toast.success('Téléchargement démarré');
+    toast.success('Téléchargement démarré — token valable 30 jours');
   };
 
   const acceptTos = () => {
@@ -212,28 +217,36 @@ export default function AgentPage() {
             <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">Après le téléchargement</h2>
             {selectedOS === 'windows' ? (
               <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
-                <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800">
-                  <strong>Windows SmartScreen</strong> — l'exe n'est pas signé (certificat commercial). Windows va l'bloquer.
-                  Procédure de déverrouillage ci-dessous.
+                <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800">
+                  Le bouton télécharge un <strong>script PowerShell</strong> pré-configuré avec votre token (valable 30 jours).
+                  Exécutez-le <strong>en tant qu'administrateur</strong> — il installe Python, nmap et l'agent automatiquement.
                 </div>
 
                 <div>
-                  <p className="font-semibold mb-2">Méthode 1 — Débloquer manuellement</p>
-                  <ol className="space-y-1 list-none">
-                    <li>1. Clic droit sur <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">petrix-agent-installer-windows.exe</code> → <strong>Propriétés</strong></li>
-                    <li>2. En bas de la fenêtre : cocher <strong>Débloquer</strong> → OK</li>
-                    <li>3. Clic droit sur le fichier → <strong>Exécuter en tant qu'administrateur</strong></li>
-                    <li>4. Accepter la demande UAC → l'installation démarre</li>
+                  <p className="font-semibold mb-2">Étapes</p>
+                  <ol className="space-y-2 list-none">
+                    <li>1. Cliquez sur <strong>Télécharger pour Windows</strong> ci-dessus</li>
+                    <li>2. Ouvrez <strong>PowerShell en administrateur</strong> (clic droit → Exécuter en tant qu'administrateur)</li>
+                    <li>3. Collez et exécutez :</li>
                   </ol>
+                  <code className="mt-2 block rounded bg-gray-100 px-3 py-2 font-mono text-xs dark:bg-gray-800 select-all">
+                    {'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\Downloads\\petrix-agent-installer-windows.ps1"'}
+                  </code>
+                  <li className="mt-2 list-none text-xs text-gray-500">4. Répondre <strong>O</strong> à la question "Lancer un scan maintenant ?"</li>
                 </div>
 
                 <div>
-                  <p className="font-semibold mb-2">Méthode 2 — PowerShell (une seule commande)</p>
-                  <p className="text-xs text-gray-500 mb-1">Ouvrez PowerShell en admin et copiez-collez :</p>
-                  <code className="block rounded bg-gray-100 px-3 py-2 font-mono text-xs dark:bg-gray-800 break-all whitespace-pre-wrap">
-                    {`$f="$env:TEMP\\petrix-install.exe"; (New-Object Net.WebClient).DownloadFile("${window.location.origin}/api/v1/agent/download/windows", $f); Unblock-File $f; Start-Process $f -Verb RunAs -Wait`}
-                  </code>
-                  <p className="text-xs text-gray-400 mt-1">Cette commande télécharge, débloque et lance l'installeur avec les droits admin.</p>
+                  <p className="font-semibold mb-2">Alternative — Une seule commande PowerShell admin</p>
+                  <p className="text-xs text-gray-500 mb-1">Cliquez d'abord sur "Télécharger" pour générer le token, puis copiez cette commande :</p>
+                  {freshToken ? (
+                    <code className="block rounded bg-gray-100 px-3 py-2 font-mono text-xs dark:bg-gray-800 break-all whitespace-pre-wrap select-all">
+                      {`$f="$env:TEMP\\petrix.ps1"; (New-Object Net.WebClient).DownloadFile("${window.location.origin}/api/v1/agent/download/windows-ps?server_url=${encodeURIComponent(window.location.origin)}&token=${encodeURIComponent(freshToken)}", $f); powershell -ExecutionPolicy Bypass -File $f -Server "${window.location.origin}" -Token "${freshToken}"`}
+                    </code>
+                  ) : (
+                    <div className="rounded bg-gray-100 px-3 py-2 text-xs text-gray-400 dark:bg-gray-800 italic">
+                      Cliquez sur "Télécharger" ci-dessus → la commande apparaîtra ici avec votre token.
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

@@ -7,6 +7,7 @@ interface User {
   first_name: string | null;
   last_name: string | null;
   role: string;
+  avatar_url: string | null;
 }
 
 interface AuthState {

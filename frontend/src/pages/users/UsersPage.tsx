@@ -30,6 +30,7 @@ interface User {
   last_login: string | null;
   created_at: string | null;
   permissions: string[];
+  avatar_url?: string | null;
 }
 
 interface Role {
@@ -340,22 +341,19 @@ export default function UsersPage() {
               <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                 <td className="whitespace-nowrap px-6 py-4">
                   <div className="flex items-center">
-                    <img
-                      src={`https://i.pravatar.cc/40?u=${encodeURIComponent(user.email)}`}
-                      alt={user.first_name || user.email}
-                      className="h-10 w-10 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-700"
-                      onError={(e) => {
-                        const t = e.currentTarget;
-                        t.onerror = null;
-                        t.style.display = 'none';
-                        t.nextElementSibling?.classList.remove('hidden');
-                      }}
-                    />
-                    <div className="hidden h-10 w-10 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900">
-                      <span className="text-sm font-medium text-primary-700 dark:text-primary-300">
-                        {(user.first_name?.[0] || user.email[0]).toUpperCase()}
-                      </span>
-                    </div>
+                    {user.avatar_url ? (
+                      <img
+                        src={user.avatar_url}
+                        alt={user.first_name || user.email}
+                        className="h-10 w-10 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-700"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900">
+                        <span className="text-sm font-medium text-primary-700 dark:text-primary-300">
+                          {(user.first_name?.[0] || user.email[0]).toUpperCase()}
+                        </span>
+                      </div>
+                    )}
                     <div className="ml-4">
                       <div className="font-medium text-gray-900 dark:text-white">
                         {user.first_name} {user.last_name}

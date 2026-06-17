@@ -50,6 +50,7 @@ class UserResponse(BaseModel):
     last_login: datetime | None = None
     created_at: datetime | None = None
     permissions: List[str] = []
+    avatar_url: str | None = None
 
     class Config:
         from_attributes = True
@@ -179,6 +180,7 @@ def user_to_response(user: User) -> UserResponse:
         last_login=user.last_login,
         created_at=user.created_at,
         permissions=permissions,
+        avatar_url=user.avatar_url,
     )
 
 
@@ -362,7 +364,28 @@ async def update_my_profile(
         current_user.first_name = user_data.first_name
     if user_data.last_name is not None:
         current_user.last_name = user_data.last_name
-    # role et is_active ignorés volontairement
+    db.commit()
+    db.refresh(current_user)
+    return user_to_response(current_user)
+
+
+class AvatarUpdate(BaseModel):
+    avatar_url: str | None = None
+
+
+@router.put("/me/avatar", response_model=UserResponse)
+async def update_my_avatar(
+    body: AvatarUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Upload or delete own avatar — accepts a base64 data URL (max ~200 KB)."""
+    if body.avatar_url is not None:
+        if len(body.avatar_url) > 300_000:
+            raise HTTPException(status_code=413, detail="Image trop grande (max 200 KB)")
+        if body.avatar_url and not body.avatar_url.startswith("data:image/"):
+            raise HTTPException(status_code=400, detail="Format invalide — data URL attendue")
+    current_user.avatar_url = body.avatar_url
     db.commit()
     db.refresh(current_user)
     return user_to_response(current_user)

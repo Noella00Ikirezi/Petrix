@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { User, Shield, Bell, Palette } from 'lucide-react';
+import { User, Shield, Bell, Palette, Camera, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function SettingsPage() {
@@ -51,6 +51,27 @@ export default function SettingsPage() {
   );
 }
 
+function resizeImageToDataUrl(file: File, size = 128): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width - side) / 2;
+      const sy = (img.height - side) / 2;
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+      resolve(canvas.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 function ProfileSettings() {
   const { user, token, updateUser } = useAuthStore();
   const [formData, setFormData] = useState({
@@ -58,6 +79,8 @@ function ProfileSettings() {
     last_name:  user?.last_name  || '',
   });
   const [loading, setLoading] = useState(false);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +105,55 @@ function ProfileSettings() {
     }
   };
 
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Fichier non supporté — image requise');
+      return;
+    }
+    setAvatarLoading(true);
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 128);
+      const res = await fetch('/api/v1/users/me/avatar', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ avatar_url: dataUrl }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateUser({ avatar_url: updated.avatar_url });
+        toast.success('Photo de profil mise à jour');
+      } else {
+        toast.error('Erreur lors de l\'upload');
+      }
+    } catch {
+      toast.error('Erreur lors du traitement de l\'image');
+    } finally {
+      setAvatarLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleAvatarDelete = async () => {
+    setAvatarLoading(true);
+    try {
+      const res = await fetch('/api/v1/users/me/avatar', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ avatar_url: null }),
+      });
+      if (res.ok) {
+        updateUser({ avatar_url: null });
+        toast.success('Photo supprimée');
+      }
+    } catch {
+      toast.error('Erreur réseau');
+    } finally {
+      setAvatarLoading(false);
+    }
+  };
+
   const initials = user?.first_name && user?.last_name
     ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
     : user?.first_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || '?';
@@ -91,15 +163,60 @@ function ProfileSettings() {
       <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Informations du profil</h2>
 
       {/* Avatar */}
-      <div className="flex items-center gap-4">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-500 text-2xl font-bold text-white">
-          {initials}
+      <div className="flex items-center gap-5">
+        <div className="relative">
+          {user?.avatar_url ? (
+            <img
+              src={user.avatar_url}
+              alt="Avatar"
+              className="h-20 w-20 rounded-full object-cover ring-4 ring-primary-100 dark:ring-primary-900"
+            />
+          ) : (
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-500 text-3xl font-bold text-white ring-4 ring-primary-100 dark:ring-primary-900">
+              {initials}
+            </div>
+          )}
+          {avatarLoading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            </div>
+          )}
         </div>
-        <div>
+
+        <div className="space-y-2">
           <p className="font-medium text-gray-900 dark:text-white">
             {user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.email}
           </p>
           <p className="text-sm capitalize text-gray-500 dark:text-gray-400">{user?.role}</p>
+          <div className="flex gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={avatarLoading}
+              className="btn btn-secondary btn-sm"
+            >
+              <Camera className="mr-1.5 h-3.5 w-3.5" />
+              {user?.avatar_url ? 'Changer la photo' : 'Ajouter une photo'}
+            </button>
+            {user?.avatar_url && (
+              <button
+                type="button"
+                onClick={handleAvatarDelete}
+                disabled={avatarLoading}
+                className="btn btn-secondary btn-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-gray-400">JPG, PNG, GIF · max 5 Mo · réduit à 128×128</p>
         </div>
       </div>
 

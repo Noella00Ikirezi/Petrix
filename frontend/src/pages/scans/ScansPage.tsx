@@ -130,7 +130,7 @@ function ScanCard({ scan, onStart, onCancel, onDelete }: {
   const { data: findingsData, isLoading: findingsLoading } = useQuery({
     queryKey: ['scan-findings', scan.id],
     queryFn: () => scansApi.findings(scan.id),
-    enabled: showFindings && isCompleted,
+    enabled: showFindings && (isCompleted || isRunning),
   });
 
   const totalFindings = isCompleted
@@ -222,15 +222,13 @@ function ScanCard({ scan, onStart, onCancel, onDelete }: {
                 <FindingCount label="Info" count={scan.findings_summary.info} color="gray" />
               )}
             </div>
-            {totalFindings > 0 && (
-              <button
-                onClick={() => setShowFindings(!showFindings)}
-                className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
-              >
-                {showFindings ? 'Masquer' : 'Voir les détails'}
-                {showFindings ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </button>
-            )}
+            <button
+              onClick={() => setShowFindings(!showFindings)}
+              className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400"
+            >
+              {showFindings ? 'Masquer' : totalFindings > 0 ? 'Voir les détails' : 'Voir les hôtes'}
+              {showFindings ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
           </div>
 
           {/* Findings detail panel */}
@@ -239,6 +237,30 @@ function ScanCard({ scan, onStart, onCancel, onDelete }: {
               {findingsLoading ? (
                 <div className="flex items-center gap-2 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin" /> Chargement des résultats...
+                </div>
+              ) : (
+                <FindingsPanel data={findingsData} />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Agent scan running — partial results */}
+      {isRunning && scan.current_phase === 'agent_scanning' && (
+        <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-700">
+          <button
+            onClick={() => setShowFindings(!showFindings)}
+            className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400"
+          >
+            {showFindings ? 'Masquer' : 'Résultats partiels disponibles'}
+            {showFindings ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          {showFindings && (
+            <div className="mt-4">
+              {findingsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Chargement...
                 </div>
               ) : (
                 <FindingsPanel data={findingsData} />

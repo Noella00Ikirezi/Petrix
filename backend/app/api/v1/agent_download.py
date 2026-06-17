@@ -1,4 +1,5 @@
 """Agent download endpoints — generate tokens and serve install scripts."""
+from datetime import timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,8 +40,12 @@ def _patch_exe(data: bytes, server_url: str, token: str) -> bytes:
 async def generate_agent_token(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Generate an agent token — requires login only."""
-    token = create_token(data={"sub": str(current_user.id)}, token_type="access")
+    """Generate a long-lived agent token (30 days) — requires login only."""
+    token = create_token(
+        data={"sub": str(current_user.id), "agent": True},
+        token_type="access",
+        expires_delta=timedelta(days=30),
+    )
     return {"token": token, "user": current_user.email}
 
 
@@ -66,10 +71,11 @@ async def download_installer(
             headers={"Content-Disposition": 'attachment; filename="petrix-agent-installer.exe"'},
         )
 
-    # Shell scripts for Linux / macOS
+    # PowerShell script for Windows (fallback when no EXE, or explicit request)
     scripts = {
-        "linux": ("install-linux.sh",  "text/x-sh", "petrix-agent-install-linux.sh"),
-        "macos": ("install-macos.sh",  "text/x-sh", "petrix-agent-install-macos.sh"),
+        "linux":      ("install-linux.sh",      "text/x-sh",          "petrix-agent-install-linux.sh"),
+        "macos":      ("install-macos.sh",       "text/x-sh",          "petrix-agent-install-macos.sh"),
+        "windows-ps": ("install-windows.ps1",    "text/plain",         "petrix-agent-install-windows.ps1"),
     }
     if os_name not in scripts:
         raise HTTPException(status_code=404, detail=f"OS non supporté: {os_name}")
@@ -83,8 +89,12 @@ async def download_installer(
     if token:
         content = (
             content
+            # bash / sh scripts: PETRIX_SERVER=""
             .replace('PETRIX_SERVER=""', f'PETRIX_SERVER="{server_url}"')
             .replace('PETRIX_TOKEN=""',  f'PETRIX_TOKEN="{token}"')
+            # PowerShell scripts: $PETRIX_SERVER = ""
+            .replace('$PETRIX_SERVER = ""', f'$PETRIX_SERVER = "{server_url}"')
+            .replace('$PETRIX_TOKEN = ""',  f'$PETRIX_TOKEN = "{token}"')
         )
 
     return Response(
