@@ -44,7 +44,7 @@ export default function LoginPage() {
         } catch {
           // Si getMe échoue, on crée un user minimal depuis l'email
           setAuth(data.access_token, data.refresh_token, {
-            id: '', email, first_name: null, last_name: null, role: 'admin',
+            id: '', email, first_name: null, last_name: null, role: 'admin', avatar_url: null,
           });
         }
 
