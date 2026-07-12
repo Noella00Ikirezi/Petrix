@@ -86,6 +86,11 @@ type Finding = {
   remediation?: string;
   status: string;
   cve_ids?: string[];
+  point_deduction?: number;
+};
+
+const SEVERITY_POINTS: Record<string, number> = {
+  CRITICAL: 15, HIGH: 8, MEDIUM: 3, LOW: 1, INFO: 0,
 };
 
 type AuditCheck = {
@@ -219,6 +224,44 @@ const REF_NORM_LABELS: Record<string, string> = {
  * par OS (Linux / macOS / Windows), module et sévérité.
  * Chaque ligne est expandable pour afficher le contexte et la norme associée.
  */
+const BENCHMARK_LINKS: { os: string; label: string; sub: string; url: string; cls: string }[] = [
+  {
+    os: 'linux',
+    label: 'ANSSI-BP-028',
+    sub: 'Recommandations GNU/Linux v2.0',
+    url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/',
+    cls: 'border-purple-200 bg-purple-50 dark:border-purple-700 dark:bg-purple-900/20',
+  },
+  {
+    os: 'macos',
+    label: 'CIS macOS Benchmark',
+    sub: 'Centre for Internet Security — Apple macOS L1',
+    url: 'https://www.cisecurity.org/benchmark/apple_os',
+    cls: 'border-gray-300 bg-gray-50 dark:border-gray-600 dark:bg-gray-800/60',
+  },
+  {
+    os: 'macos',
+    label: 'Apple Platform Security',
+    sub: 'Guide officiel Apple sécurité macOS',
+    url: 'https://support.apple.com/guide/security/welcome/web',
+    cls: 'border-gray-300 bg-gray-50 dark:border-gray-600 dark:bg-gray-800/60',
+  },
+  {
+    os: 'windows',
+    label: 'CIS Windows Server 2019',
+    sub: 'Centre for Internet Security — WS2019 L1',
+    url: 'https://www.cisecurity.org/benchmark/microsoft_windows_server',
+    cls: 'border-blue-200 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20',
+  },
+  {
+    os: 'windows',
+    label: 'Microsoft Security Baselines',
+    sub: 'Windows Security Configuration Framework',
+    url: 'https://learn.microsoft.com/en-us/windows/security/threat-protection/windows-security-configuration-framework/windows-security-baselines',
+    cls: 'border-blue-200 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20',
+  },
+];
+
 function ReferentielTab() {
   const [osFilter, setOsFilter] = useState<'all' | 'linux' | 'macos' | 'windows'>('linux');
   const [moduleFilter, setModuleFilter] = useState('');
@@ -241,22 +284,31 @@ function ReferentielTab() {
   const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
   const sorted = [...filtered].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
+  const visibleLinks = osFilter === 'all'
+    ? BENCHMARK_LINKS
+    : BENCHMARK_LINKS.filter(l => l.os === osFilter);
+
   return (
     <div className="space-y-4">
-      {/* Banner */}
-      <div className="rounded-lg border p-4" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
-        <div className="flex items-start gap-3">
-          <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary-600 dark:text-primary-400" />
-          <div>
-            <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-              Référentiel multi-OS — ANSSI-BP-028 · CIS macOS · CIS Windows Server 2019
-            </p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--faint)' }}>
-              {AUDIT_CATALOG.length} contrôles couvrant Linux ({osCounts.linux}), macOS ({osCounts.macos}) et Windows ({osCounts.windows}).
-              Chaque contrôle est associé à sa norme officielle et à son contexte de risque.
-            </p>
-          </div>
+      {/* Benchmark links */}
+      <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          Normes de référence officielles
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {visibleLinks.map(l => (
+            <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer"
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:shadow-sm transition-all ${l.cls}`}>
+              <span className="font-semibold text-gray-800 dark:text-gray-200">{l.label}</span>
+              <span className="text-gray-500 dark:text-gray-400 hidden sm:inline">— {l.sub}</span>
+              <ExternalLink className="h-3 w-3 text-gray-400 shrink-0" />
+            </a>
+          ))}
         </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {AUDIT_CATALOG.length} contrôles couvrant Linux ({osCounts.linux}), macOS ({osCounts.macos}) et Windows ({osCounts.windows}).
+          Score : CRITIQUE −15 pts · ÉLEVÉ −8 pts · MOYEN −3 pts · FAIBLE −1 pt.
+        </p>
       </div>
 
       {/* OS tabs */}
@@ -307,9 +359,14 @@ function ReferentielTab() {
               className="flex w-full items-start gap-3 p-4 text-left"
               onClick={() => setExpanded(e => e === check.id ? null : check.id)}
             >
-              <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-xs font-bold ${SEVERITY_COLORS[check.severity]}`}>
-                {check.severity === 'CRITICAL' ? 'CRITIQUE' : check.severity === 'HIGH' ? 'ÉLEVÉ' : check.severity === 'MEDIUM' ? 'MOYEN' : 'FAIBLE'}
-              </span>
+              <div className="flex flex-col items-center gap-1 shrink-0 mt-0.5">
+                <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${SEVERITY_COLORS[check.severity]}`}>
+                  {check.severity === 'CRITICAL' ? 'CRITIQUE' : check.severity === 'HIGH' ? 'ÉLEVÉ' : check.severity === 'MEDIUM' ? 'MOYEN' : 'FAIBLE'}
+                </span>
+                <span className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-xs font-mono font-bold text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+                  −{SEVERITY_POINTS[check.severity] ?? 0} pts
+                </span>
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${MODULE_COLORS[check.module] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
@@ -434,11 +491,33 @@ function FicheModule({ mod, sessions }: { mod: ModuleKnowledge; sessions: Sessio
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-2">
               <h3 className="text-base font-bold text-gray-900 dark:text-white">{mod.label}</h3>
-              {mod.anssiRefs.map(r => (
-                <span key={r} className="rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:border-primary-700 dark:bg-primary-900/20 dark:text-primary-300">
-                  {r}
-                </span>
-              ))}
+              {/* Norme ANSSI pour Linux */}
+              {mod.anssiRefs.filter(r => r.startsWith('R')).length > 0 && (
+                <a href="https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/"
+                  target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-900/20 dark:text-purple-300">
+                  ANSSI-BP-028 {mod.anssiRefs.filter(r => r.startsWith('R')).slice(0, 3).join(' · ')}
+                  <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                </a>
+              )}
+              {/* CIS macOS si le module couvre macOS */}
+              {MODULE_OS_MAP[mod.id]?.has('macos') && (
+                <a href="https://www.cisecurity.org/benchmark/apple_os"
+                  target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                  CIS macOS L1
+                  <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                </a>
+              )}
+              {/* CIS Windows si le module couvre windows */}
+              {MODULE_OS_MAP[mod.id]?.has('windows') && (
+                <a href="https://www.cisecurity.org/benchmark/microsoft_windows_server"
+                  target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
+                  CIS WS2019 L1
+                  <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                </a>
+              )}
             </div>
             <RiskBar score={mod.riskScore} />
           </div>
@@ -625,21 +704,47 @@ function FicheModule({ mod, sessions }: { mod: ModuleKnowledge; sessions: Sessio
  * avec indicateur de findings actifs basé sur les sessions passées en paramètre.
  * @param sessions - Historique des sessions pour détecter les modules avec findings.
  */
+// OS présents dans AUDIT_CATALOG pour chaque module
+const MODULE_OS_MAP: Record<string, Set<string>> = {};
+AUDIT_CATALOG.forEach(c => {
+  if (!MODULE_OS_MAP[c.module]) MODULE_OS_MAP[c.module] = new Set();
+  c.os.forEach(o => MODULE_OS_MAP[c.module].add(o));
+});
+
+const OS_NORM_LABEL: Record<string, { label: string; cls: string; normLabel: string }> = {
+  linux:   { label: 'Linux', normLabel: 'ANSSI-BP-028', cls: 'border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-700 dark:bg-purple-900/20 dark:text-purple-300' },
+  macos:   { label: 'macOS', normLabel: 'CIS macOS',    cls: 'border-gray-300 bg-gray-100 text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300' },
+  windows: { label: 'Windows', normLabel: 'CIS WS2019', cls: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300' },
+};
+
 function FichesTab({ sessions }: { sessions: Session[] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4 space-y-3">
         <div className="flex items-start gap-3">
           <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-primary-600 dark:text-primary-400" />
           <div>
-            <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
               Base de connaissance — {MODULE_ORDER.length} modules · Linux / macOS / Windows
             </p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--faint)' }}>
-              Vecteurs d'attaque, commandes d'audit par OS, remédiation et sources officielles (ANSSI-BP-028, CIS, NIST, MITRE ATT&amp;CK).
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Vecteurs d'attaque, commandes d'audit par OS, remédiation et sources officielles. Cliquez sur un module pour voir les contrôles CIS / ANSSI applicables.
             </p>
+          </div>
+        </div>
+        {/* Liens officiels vers les normes */}
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Normes de référence officielles</p>
+          <div className="flex flex-wrap gap-2">
+            {BENCHMARK_LINKS.map(l => (
+              <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer"
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold hover:shadow-sm transition-all ${l.cls}`}>
+                {l.label}
+                <ExternalLink className="h-3 w-3 text-gray-400 shrink-0" />
+              </a>
+            ))}
           </div>
         </div>
       </div>
@@ -663,11 +768,13 @@ function FichesTab({ sessions }: { sessions: Session[] }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <span className="font-semibold text-sm text-gray-900 dark:text-white">{mod.label}</span>
-                    {mod.anssiRefs.slice(0, 4).map(r => (
-                      <span key={r} className="rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:border-primary-700 dark:bg-primary-900/20 dark:text-primary-300">
-                        {r}
-                      </span>
-                    ))}
+                    {(['linux', 'macos', 'windows'] as const).map(os =>
+                      MODULE_OS_MAP[modId]?.has(os) ? (
+                        <span key={os} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${OS_NORM_LABEL[os].cls}`}>
+                          {OS_NORM_LABEL[os].normLabel}
+                        </span>
+                      ) : null
+                    )}
                   </div>
                   <RiskBar score={mod.riskScore} />
                 </div>
@@ -784,20 +891,24 @@ function ImportXmlModal({ onClose, onImported }: { onClose: () => void; onImport
 
 // TargetModal et SessionModal supprimés — les systèmes sont gérés via /assets et les audits via agent local + import XML.
 
-/**
- * Carte d'une session d'audit de durcissement : affiche le grade, le score, le résumé des findings
- * par sévérité, et permet d'accéder au rapport détaillé et aux corrélations CERT-FR.
- * @param session - Session de durcissement à afficher.
- */
 function SessionCard({ session }: { session: Session }) {
   const [expanded, setExpanded] = useState(false);
   const [showCorr, setShowCorr] = useState(false);
+  const certRef = useRef<HTMLDivElement>(null);
 
   const { data: findings } = useQuery<Finding[]>({
     queryKey: ['hardening-findings', session.id],
     queryFn: () => hardeningApi.getFindings(session.id),
     enabled: expanded && session.status === 'completed',
   });
+
+  const { data: fullReport } = useQuery({
+    queryKey: ['hardening-full-report', session.id],
+    queryFn: () => hardeningApi.getFullReport(session.id),
+    enabled: expanded && session.status === 'completed',
+    staleTime: 10 * 60 * 1000,
+  });
+  const aiAnalysis: any = fullReport?.ai_analysis ?? null;
 
   const { data: corrData, isLoading: corrLoading } = useQuery({
     queryKey: ['hardening-correlations', session.id],
@@ -808,21 +919,93 @@ function SessionCard({ session }: { session: Session }) {
   const correlations: any[] = corrData?.correlations ?? [];
 
   const summary = session.findings_summary ?? {};
+  const crit = summary['CRITICAL'] ?? 0;
+  const high = summary['HIGH'] ?? 0;
+  const med  = summary['MEDIUM'] ?? 0;
+  const low  = summary['LOW'] ?? 0;
+
+  const handleToggleCorr = () => {
+    setShowCorr(v => !v);
+    if (!showCorr) {
+      setTimeout(() => certRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    }
+  };
+
+  const failFindings = (findings ?? []).filter(f => f.status !== 'PASS');
+  const byGroup = {
+    CRITICAL: failFindings.filter(f => f.severity === 'CRITICAL'),
+    HIGH:     failFindings.filter(f => f.severity === 'HIGH'),
+    MEDIUM:   failFindings.filter(f => f.severity === 'MEDIUM'),
+    LOW:      failFindings.filter(f => f.severity === 'LOW'),
+  };
+  const quickWins = byGroup.MEDIUM.filter(f => f.remediation && f.remediation.length < 200);
+
+  const SEV_FR: Record<string, string> = { CRITICAL: 'Critique', HIGH: 'Élevé', MEDIUM: 'Moyen', LOW: 'Faible' };
+
+  function FindingRow({ f }: { f: Finding }) {
+    const pts = f.point_deduction ?? SEVERITY_POINTS[f.severity] ?? 0;
+    const isQW = f.severity === 'MEDIUM' && f.remediation && f.remediation.length < 200;
+    return (
+      <div className="rounded-md border border-gray-100 p-3 dark:border-gray-700">
+        <div className="flex items-start gap-2">
+          <div className="flex-1 space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${SEVERITY_COLORS[f.severity] ?? ''}`}>
+                {SEV_FR[f.severity] ?? f.severity}
+              </span>
+              <span className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-xs font-mono font-semibold text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+                −{pts} pts
+              </span>
+              {isQW && (
+                <span className="rounded border border-green-200 bg-green-50 px-1.5 py-0.5 text-xs font-semibold text-green-700 dark:border-green-700 dark:bg-green-900/20 dark:text-green-400">
+                  ⚡ Quick win
+                </span>
+              )}
+              <span className="font-mono text-xs text-gray-500">{f.check_id}</span>
+              <span className="text-xs font-medium dark:text-gray-300">{f.check_name}</span>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-400">{f.description}</p>
+            <p className="text-xs text-gray-500">
+              Valeur trouvée : <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{f.found}</code>
+              {' → '}Attendu : <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{f.expected}</code>
+            </p>
+            {f.cve_ids && f.cve_ids.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {f.cve_ids.map(cve => (
+                  <a key={cve} href={`https://nvd.nist.gov/vuln/detail/${cve}`} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 rounded border border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-orange-700 hover:bg-orange-100 dark:border-orange-700 dark:bg-orange-950/40 dark:text-orange-400">
+                    {cve} <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                  </a>
+                ))}
+              </div>
+            )}
+            {f.remediation && (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-xs text-primary-600 dark:text-primary-400">Remédiation</summary>
+                <pre className="mt-1 overflow-auto rounded bg-gray-50 p-2 text-xs dark:bg-gray-900">{f.remediation}</pre>
+              </details>
+            )}
+          </div>
+          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-700">{f.module}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+      {/* ── En-tête ── */}
       <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
+        <div className="space-y-1 flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium dark:text-white">{session.target_name}</span>
             <StatusBadge status={session.status} />
             {session.grade && (
-              <span className={`text-xl font-bold ${GRADE_COLORS[session.grade] ?? ''}`}>
-                {session.grade}
-              </span>
+              <span className={`text-xl font-bold ${GRADE_COLORS[session.grade] ?? ''}`}>{session.grade}</span>
             )}
           </div>
-          <p className="text-sm text-gray-500">{session.target_host}</p>
+          <p className="text-sm text-gray-500 font-mono">{session.target_host}</p>
+
           {session.status === 'auditing' && (
             <div className="mt-2 space-y-1">
               <div className="flex justify-between text-xs text-gray-500">
@@ -830,49 +1013,44 @@ function SessionCard({ session }: { session: Session }) {
                 <span>{session.progress}%</span>
               </div>
               <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
-                <div
-                  className="h-1.5 rounded-full bg-primary-500 transition-all"
-                  style={{ width: `${session.progress}%` }}
-                />
+                <div className="h-1.5 rounded-full bg-primary-500 transition-all" style={{ width: `${session.progress}%` }} />
               </div>
             </div>
           )}
+
           {session.status === 'completed' && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {session.score !== undefined && (
-                <span className="text-sm font-medium dark:text-gray-300">
-                  Score: <strong>{session.score}/100</strong>
-                </span>
-              )}
-              {Object.entries(summary).map(([sev, count]) =>
-                count > 0 ? (
-                  <span key={sev} className={`rounded px-2 py-0.5 text-xs font-medium ${SEVERITY_COLORS[sev] ?? ''}`}>
-                    {count} {sev}
-                  </span>
-                ) : null
-              )}
-              <span className="text-xs text-gray-400">
-                {session.passed_checks}/{session.total_checks} checks passed
+            <div className="mt-2 flex flex-wrap gap-2 items-center">
+              <span className="text-sm font-semibold dark:text-gray-300">
+                {session.score !== undefined ? `${session.score}/100` : '—'}
               </span>
+              {crit > 0 && <span className={`rounded px-2 py-0.5 text-xs font-medium ${SEVERITY_COLORS.CRITICAL}`}>{crit} critique{crit > 1 ? 's' : ''}</span>}
+              {high > 0 && <span className={`rounded px-2 py-0.5 text-xs font-medium ${SEVERITY_COLORS.HIGH}`}>{high} élevé{high > 1 ? 's' : ''}</span>}
+              {med > 0  && <span className={`rounded px-2 py-0.5 text-xs font-medium ${SEVERITY_COLORS.MEDIUM}`}>{med} moyen{med > 1 ? 's' : ''}</span>}
+              {low > 0  && <span className={`rounded px-2 py-0.5 text-xs font-medium ${SEVERITY_COLORS.LOW}`}>{low} faible{low > 1 ? 's' : ''}</span>}
+              <span className="text-xs text-gray-400">{session.passed_checks}/{session.total_checks} contrôles OK</span>
             </div>
           )}
+
+          {session.status === 'completed' && session.score !== undefined && (
+            <p className="text-xs text-gray-400 mt-1">
+              Formule : 100 − ({crit}×15 + {high}×8 + {med}×3 + {low}×1) = {Math.max(0, 100 - (crit * 15 + high * 8 + med * 3 + low * 1))} pts de déduction
+            </p>
+          )}
+
           {session.status === 'failed' && session.error_message && (
             <p className="mt-1 text-xs text-red-500">{session.error_message}</p>
           )}
         </div>
+
         {session.status === 'completed' && (
-          <div className="flex flex-col items-end gap-1">
-            <button
-              onClick={() => setExpanded(e => !e)}
-              className="flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-400"
-            >
+          <div className="flex flex-col items-end gap-1 ml-3 shrink-0">
+            <button onClick={() => setExpanded(e => !e)}
+              className="flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-400">
               {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              Findings
+              Détails
             </button>
-            <button
-              onClick={() => setShowCorr(e => !e)}
-              className="flex items-center gap-1 text-xs text-orange-600 hover:underline dark:text-orange-400"
-            >
+            <button onClick={handleToggleCorr}
+              className="flex items-center gap-1 text-xs text-orange-600 hover:underline dark:text-orange-400">
               {showCorr ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               CERT-FR
             </button>
@@ -880,67 +1058,131 @@ function SessionCard({ session }: { session: Session }) {
         )}
       </div>
 
-      {expanded && findings && findings.length > 0 && (
-        <div className="mt-4 space-y-2 border-t border-gray-100 pt-4 dark:border-gray-700">
-          {findings.map(f => (
-            <div key={f.id} className="rounded-md border border-gray-100 p-3 dark:border-gray-700">
-              <div className="flex items-start justify-between gap-2">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${SEVERITY_COLORS[f.severity] ?? ''}`}>
-                      {f.severity}
-                    </span>
-                    <span className="text-xs font-mono text-gray-500">{f.check_id}</span>
-                    <span className="text-xs font-medium dark:text-gray-300">{f.check_name}</span>
-                  </div>
-                  <p className="text-xs text-gray-600 dark:text-gray-400">{f.description}</p>
-                  <p className="text-xs text-gray-500">
-                    Found: <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{f.found}</code>
-                    {' → '}Expected: <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{f.expected}</code>
+      {/* ── Findings groupés par sévérité ── */}
+      {expanded && findings !== undefined && (
+        <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-700 space-y-4">
+
+          {/* Quick wins en évidence */}
+          {quickWins.length > 0 && (
+            <div className="rounded-lg border border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-900/10 p-3">
+              <p className="text-xs font-semibold text-green-700 dark:text-green-400 mb-2 flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5" />
+                {quickWins.length} Quick win{quickWins.length > 1 ? 's' : ''} — corrections rapides à fort impact (+{quickWins.length * 3} pts potentiels)
+              </p>
+              <div className="space-y-1">
+                {quickWins.map(f => (
+                  <p key={f.id} className="text-xs text-green-700 dark:text-green-400">
+                    <span className="font-semibold">⚡ {f.check_name}</span>
+                    {f.remediation && <span className="text-green-600 dark:text-green-500"> → {f.remediation.substring(0, 80)}{f.remediation.length > 80 ? '…' : ''}</span>}
                   </p>
-                  {f.cve_ids && f.cve_ids.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {f.cve_ids.map(cve => (
-                        <a
-                          key={cve}
-                          href={`https://nvd.nist.gov/vuln/detail/${cve}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-0.5 rounded border border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-orange-700 hover:bg-orange-100 dark:border-orange-700 dark:bg-orange-950/40 dark:text-orange-400 dark:hover:bg-orange-900/50"
-                        >
-                          {cve}
-                          <ExternalLink className="h-2.5 w-2.5 opacity-60" />
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                  {f.remediation && (
-                    <details className="mt-1">
-                      <summary className="cursor-pointer text-xs text-primary-600 dark:text-primary-400">
-                        Remediation
-                      </summary>
-                      <pre className="mt-1 overflow-auto rounded bg-gray-50 p-2 text-xs dark:bg-gray-900">{f.remediation}</pre>
-                    </details>
-                  )}
-                </div>
-                <span className="shrink-0 rounded px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-700">
-                  {f.module}
-                </span>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
-      )}
-      {expanded && findings && findings.length === 0 && (
-        <div className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-4 text-sm text-green-600 dark:border-gray-700 dark:text-green-400">
-          <CheckCircle className="h-4 w-4" />
-          No findings — all checks passed!
+          )}
+
+          {/* Par groupe de sévérité */}
+          {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const).map(sev => {
+            const group = byGroup[sev];
+            if (group.length === 0) return null;
+            return (
+              <div key={sev}>
+                <p className={`mb-2 text-xs font-semibold uppercase tracking-wide ${
+                  sev === 'CRITICAL' ? 'text-red-600 dark:text-red-400' :
+                  sev === 'HIGH'     ? 'text-orange-600 dark:text-orange-400' :
+                  sev === 'MEDIUM'   ? 'text-yellow-600 dark:text-yellow-500' :
+                                      'text-blue-600 dark:text-blue-400'
+                }`}>
+                  {SEV_FR[sev]} ({group.length} finding{group.length > 1 ? 's' : ''} · −{SEVERITY_POINTS[sev]} pts chacun · total −{group.length * SEVERITY_POINTS[sev]} pts)
+                </p>
+                <div className="space-y-2">
+                  {group.map(f => <FindingRow key={f.id} f={f} />)}
+                </div>
+              </div>
+            );
+          })}
+
+          {failFindings.length === 0 && (
+            <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+              <CheckCircle className="h-4 w-4" />
+              Aucun écart — tous les contrôles sont conformes.
+            </div>
+          )}
+
+          {/* ── Rapport IA Mistral (synthèse en bas) ── */}
+          {aiAnalysis && (
+            <div className="rounded-lg border border-purple-200 bg-purple-50/50 dark:border-purple-800 dark:bg-purple-900/10 p-4 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-400 flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5" />
+                Synthèse IA Mistral — Conclusion d'audit
+              </p>
+
+              {(aiAnalysis.niveau_risque || aiAnalysis.risque_global) && (
+                <div className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-bold ${
+                  (aiAnalysis.niveau_risque || aiAnalysis.risque_global) === 'CRITIQUE' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                  (aiAnalysis.niveau_risque || aiAnalysis.risque_global) === 'ELEVE'    ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+                  (aiAnalysis.niveau_risque || aiAnalysis.risque_global) === 'ÉLEVÉ'    ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+                  (aiAnalysis.niveau_risque || aiAnalysis.risque_global) === 'MODERE'   ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                  (aiAnalysis.niveau_risque || aiAnalysis.risque_global) === 'MODÉRÉ'   ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                  'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                }`}>
+                  Risque global : {aiAnalysis.niveau_risque || aiAnalysis.risque_global}
+                </div>
+              )}
+
+              {aiAnalysis.resume_executif && (
+                <div>
+                  <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 mb-1">Résumé exécutif</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{aiAnalysis.resume_executif}</p>
+                </div>
+              )}
+
+              {aiAnalysis.quick_wins && aiAnalysis.quick_wins.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-green-700 dark:text-green-400 mb-1">⚡ Quick wins identifiés par l'IA</p>
+                  <ul className="space-y-1">
+                    {aiAnalysis.quick_wins.map((qw: string, i: number) => (
+                      <li key={i} className="text-xs text-gray-600 dark:text-gray-400 flex items-start gap-1.5">
+                        <span className="shrink-0 text-green-500 mt-0.5">✓</span> {qw}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {aiAnalysis.top_priorites && aiAnalysis.top_priorites.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-orange-700 dark:text-orange-400 mb-1">Priorités de remédiation</p>
+                  <ol className="space-y-1">
+                    {(aiAnalysis.top_priorites as string[]).map((p, i) => (
+                      <li key={i} className="text-xs text-gray-600 dark:text-gray-400 flex items-start gap-1.5">
+                        <span className="shrink-0 font-mono text-orange-500">{i + 1}.</span> {p}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {aiAnalysis.plan_remediation && (
+                <div>
+                  <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 mb-1">Plan de remédiation</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-line leading-relaxed">{aiAnalysis.plan_remediation}</p>
+                </div>
+              )}
+
+              {(aiAnalysis.evaluation_conformite || aiAnalysis.evaluation_anssi) && (
+                <div>
+                  <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 mb-1">Évaluation de conformité</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">{aiAnalysis.evaluation_conformite || aiAnalysis.evaluation_anssi}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {/* ── Corrélations CERT-FR ── */}
       {showCorr && (
-        <div className="mt-4 border-t border-orange-100 pt-4 dark:border-orange-900/30">
+        <div ref={certRef} className="mt-4 border-t border-orange-100 pt-4 dark:border-orange-900/30">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
             Corrélations CERT-FR · alertes liées aux findings FAIL
           </p>
@@ -951,9 +1193,7 @@ function SessionCard({ session }: { session: Session }) {
             </div>
           )}
           {!corrLoading && correlations.length === 0 && (
-            <p className="text-xs text-gray-400">
-              Aucune alerte CERT-FR ne correspond aux findings de cet audit (par mots-clés).
-            </p>
+            <p className="text-xs text-gray-400">Aucune alerte CERT-FR ne correspond aux findings de cet audit.</p>
           )}
           {!corrLoading && correlations.length > 0 && (
             <div className="space-y-3">

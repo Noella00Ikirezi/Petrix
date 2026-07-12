@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.deps import get_current_user, require_permission
 from app.core.permissions import Permission, UserRole
 from app.infrastructure.database import get_db
-from app.infrastructure.database.models import User
+from app.infrastructure.database.models import User, Vulnerability, VulnStatus, Severity
 from app.infrastructure.database.hardening_models import (
     HardeningTarget,
     HardeningSession,
@@ -34,6 +34,11 @@ from app.hardening.engine import DEFAULT_MODULES_BY_OS, SUPPORTED_OS_TYPES
 from app.hardening.cve_mapping import get_cves_for_check
 
 router = APIRouter()
+
+# Points déduits du score par sévérité de finding (formule identique aux agents bash/PS1)
+SEVERITY_DEDUCTIONS: dict[str, int] = {
+    "CRITICAL": 15, "HIGH": 8, "MEDIUM": 3, "LOW": 1, "INFO": 0
+}
 
 
 # =============================================================================
@@ -143,6 +148,7 @@ class FindingResponse(BaseModel):
     remediation: Optional[str]
     status: str
     cve_ids: list[str] = []
+    point_deduction: int = 0
 
 
 class SessionResponse(BaseModel):
@@ -419,6 +425,7 @@ def get_session_findings(
             remediation=f.remediation,
             status=f.status,
             cve_ids=get_cves_for_check(f.check_id),
+            point_deduction=SEVERITY_DEDUCTIONS.get(f.severity, 0) if f.status != "PASS" else 0,
         )
         for f in findings
     ]
@@ -454,6 +461,8 @@ def get_full_report(
             expected=f.expected,
             remediation=f.remediation,
             status=f.status,
+            cve_ids=get_cves_for_check(f.check_id),
+            point_deduction=SEVERITY_DEDUCTIONS.get(f.severity, 0) if f.status != "PASS" else 0,
         )
         for f in findings
     ]
@@ -619,24 +628,39 @@ def _mistral_analyze(hostname: str, os_label: str, score: float, grade: str,
             "risque_global": "FAIBLE",
         }
 
+    crit_count = sum(1 for f in fails if f.get("severity") == "CRITICAL")
+    high_count = sum(1 for f in fails if f.get("severity") == "HIGH")
+    med_count  = sum(1 for f in fails if f.get("severity") == "MEDIUM")
+    low_count  = sum(1 for f in fails if f.get("severity") == "LOW")
+
     findings_text = "\n".join([
-        f"- [{f.get('severity','?')}] {f.get('name','')}: trouvé={f.get('found','')}, attendu={f.get('expected','')}"
-        for f in fails[:20]
+        f"- [{f.get('severity','?')}] {f.get('name','')}: valeur={f.get('found','')}, attendu={f.get('expected','')}"
+        for f in fails[:25]
     ])
 
-    prompt = f"""Tu es un expert en cybersécurité ANSSI-BP-028. Analyse cet audit et réponds UNIQUEMENT en JSON valide, sans markdown, sans explication.
+    prompt = f"""Tu es un auditeur senior en cybersécurité. Voici les resultats d'un audit de durcissement automatise. Genere une synthese de conclusion en JSON valide uniquement (sans markdown, sans code block).
 
-Système: {hostname} ({os_label}) — Score: {score}/100 — Grade: {grade}
-Findings ({len(fails)} écarts):
+Systeme audite: {hostname} ({os_label})
+Score: {score}/100 — Grade: {grade}
+Ecarts: {len(fails)} au total ({crit_count} critiques x15pts, {high_count} eleves x8pts, {med_count} moyens x3pts, {low_count} faibles x1pt)
+
+Ecarts detectes:
 {findings_text}
 
-Réponds avec ce JSON exact:
-{{"resume_executif":"...","top_priorites":["action1","action2","action3"],"evaluation_anssi":"...","plan_remediation":"...","risque_global":"CRITIQUE|ÉLEVÉ|MODÉRÉ|FAIBLE"}}"""
+Reponds UNIQUEMENT avec ce JSON (sans aucun texte autour):
+{{
+  "resume_executif": "Synthese en 3 phrases max de la posture securite du systeme",
+  "niveau_risque": "CRITIQUE|ELEVE|MODERE|FAIBLE",
+  "top_priorites": ["Action 1 urgente concrete", "Action 2 concrete", "Action 3 concrete"],
+  "quick_wins": ["Correctif rapide 1 (moins de 5 min)", "Correctif rapide 2 (1 commande)"],
+  "plan_remediation": "Court terme (48h): ... Moyen terme (2 semaines): ... Long terme: ...",
+  "evaluation_conformite": "Evaluation de la conformite aux normes applicables (ANSSI-BP-028 pour Linux, CIS macOS pour Mac, CIS WS2019 pour Windows)"
+}}"""
 
     payload = json.dumps({
         "model": "mistral-small-latest",
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 600,
+        "max_tokens": 1500,
         "temperature": 0.2,
     }).encode("utf-8")
 
@@ -803,6 +827,23 @@ async def import_xml_report(
 
     db.commit()
     db.refresh(session)
+
+    # ── Auto-sync CRITICAL/HIGH → tracker vulnérabilités ─────────────────────
+    sev_vuln_map = {"CRITICAL": Severity.CRITICAL, "HIGH": Severity.HIGH}
+    for f_el in raw_findings:
+        sev_str = f_el.attrib.get("severity", "")
+        if f_el.attrib.get("status") != "FAIL" or sev_str not in sev_vuln_map:
+            continue
+        title = f"[HCO] {_txt(f_el, 'Name')}"
+        if not db.query(Vulnerability).filter(Vulnerability.title == title).first():
+            db.add(Vulnerability(
+                title=title,
+                description=_txt(f_el, "Context") or _txt(f_el, "Name"),
+                severity=sev_vuln_map[sev_str],
+                status=VulnStatus.OPEN,
+                discovered_by="agent",
+            ))
+    db.commit()
 
     # ── Analyse IA Mistral ────────────────────────────────────────────────────
     findings_for_ai = [
