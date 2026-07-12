@@ -84,8 +84,9 @@ function FicheDrawer({ certId, feedType, onClose }: { certId: string; feedType: 
       {/* Backdrop */}
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl dark:bg-gray-900">
+      {/* Modal centré */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="relative flex w-full max-w-2xl max-h-[88vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-900">
 
         {/* Banner */}
         {fiche ? (
@@ -243,6 +244,7 @@ function FicheDrawer({ certId, feedType, onClose }: { certId: string; feedType: 
             </div>
           )}
         </div>
+      </div>
       </div>
     </>
   );
@@ -506,6 +508,53 @@ function CertFrFeed() {
   );
 }
 
+// ─── Research Links ────────────────────────────────────────────────────────────
+
+function ResearchLinks({ title, cve_ids }: { title: string; cve_ids: string[] }) {
+  const q = encodeURIComponent(title.slice(0, 80));
+  return (
+    <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3 dark:border-blue-900/40 dark:bg-blue-950/20">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+        Rechercher sur les bases officielles
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {cve_ids.map(cve => (
+          <span key={cve} className="contents">
+            <a href={`https://nvd.nist.gov/vuln/detail/${cve}`} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 font-mono text-xs font-semibold text-white hover:bg-blue-700">
+              <ExternalLink className="h-3 w-3" /> NVD · {cve}
+            </a>
+            <a href={`https://cve.mitre.org/cgi-bin/cvename.cgi?name=${cve}`} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1 rounded-md bg-purple-100 px-2.5 py-1 font-mono text-xs font-semibold text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300">
+              <ExternalLink className="h-3 w-3" /> MITRE · {cve}
+            </a>
+            <a href={`https://www.cve.org/CVERecord?id=${cve}`} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1 rounded-md bg-purple-50 px-2.5 py-1 font-mono text-xs font-medium text-purple-600 hover:bg-purple-100 dark:bg-purple-900/20 dark:text-purple-400">
+              <ExternalLink className="h-3 w-3" /> CVE.org · {cve}
+            </a>
+          </span>
+        ))}
+        <a href={`https://www.cert.ssi.gouv.fr/?s=${q}`} target="_blank" rel="noreferrer"
+          className="flex items-center gap-1 rounded-md bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300">
+          <ExternalLink className="h-3 w-3" /> Rechercher CERT-FR
+        </a>
+        <a href={`https://nvd.nist.gov/vuln/search/results?query=${q}&search_type=all`} target="_blank" rel="noreferrer"
+          className="flex items-center gap-1 rounded-md bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300">
+          <ExternalLink className="h-3 w-3" /> Rechercher NVD
+        </a>
+        <a href={`https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=${q}`} target="_blank" rel="noreferrer"
+          className="flex items-center gap-1 rounded-md bg-purple-100 px-2.5 py-1 text-xs font-medium text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300">
+          <ExternalLink className="h-3 w-3" /> Rechercher MITRE
+        </a>
+        <a href="https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/" target="_blank" rel="noreferrer"
+          className="flex items-center gap-1 rounded-md bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300">
+          <ExternalLink className="h-3 w-3" /> ANSSI BP-028
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ─── Internal Vuln Tab ─────────────────────────────────────────────────────────
 
 const VULN_SEV: Record<string, typeof SEV[keyof typeof SEV]> = {
@@ -543,12 +592,7 @@ function VulnRow({ vuln }: { vuln: Vuln }) {
               <div className="mt-3 space-y-2 text-sm text-gray-600 dark:text-gray-400">
                 {vuln.description && <p>{vuln.description}</p>}
                 <p className="text-xs text-gray-400">Découverte le {new Date(vuln.discovered_at).toLocaleString('fr-FR')}</p>
-                {vuln.cve_ids?.map(cve => (
-                  <a key={cve} href={`https://nvd.nist.gov/vuln/detail/${cve}`} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-400">
-                    <ExternalLink className="h-3 w-3" /> {cve}
-                  </a>
-                ))}
+                <ResearchLinks title={vuln.title} cve_ids={vuln.cve_ids ?? []} />
               </div>
             )}
           </div>
@@ -561,147 +605,6 @@ function VulnRow({ vuln }: { vuln: Vuln }) {
   );
 }
 
-// ─── Correlations Tab ─────────────────────────────────────────────────────────
-
-const CERT_SEV_COLOR: Record<string, string> = {
-  CRITICAL: '#ef4444',
-  HIGH:     '#f97316',
-  MEDIUM:   '#eab308',
-  LOW:      '#3b82f6',
-};
-
-/**
- * Onglet de corrélations CVE : relie les CVE locales aux alertes CERT-FR correspondantes
- * pour prioriser les remédiations selon l'actualité de la menace.
- */
-function CorrelationsTab() {
-  const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ['vuln-correlations'],
-    queryFn: feedApi.vulnCorrelations,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const correlations: any[] = data?.correlations ?? [];
-  const total: number = data?.total_correlated ?? 0;
-
-  if (isLoading) {
-    return (
-      <div className="flex h-48 items-center justify-center gap-3 text-gray-400">
-        <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" />
-        <span className="text-sm">Interrogation du CERT-FR…</span>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="flex h-40 flex-col items-center justify-center gap-2 text-gray-400">
-        <AlertTriangle className="h-8 w-8 opacity-40" />
-        <p className="text-sm">Impossible de joindre le CERT-FR — réessayez.</p>
-        <button onClick={() => refetch()} className="btn btn-sm mt-1">Réessayer</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            {total === 0
-              ? 'Aucune vulnérabilité Petrix ne correspond à une alerte CERT-FR active.'
-              : `${total} vulnérabilité${total > 1 ? 's' : ''} corrélée${total > 1 ? 's' : ''} avec des alertes CERT-FR`}
-          </p>
-          <p className="mt-0.5 text-xs text-gray-400">Corrélation par CVE ID · {data?.cert_items_fetched ?? 0} bulletins CERT-FR analysés</p>
-        </div>
-        <button onClick={() => refetch()} className="btn btn-sm flex items-center gap-1.5" disabled={isFetching}>
-          <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-          Actualiser
-        </button>
-      </div>
-
-      {correlations.length === 0 ? (
-        <div className="flex h-40 flex-col items-center justify-center gap-3 text-gray-400 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-          <Shield className="h-10 w-10 opacity-20" />
-          <div className="text-center">
-            <p className="font-medium text-sm">Aucune corrélation CVE trouvée</p>
-            <p className="text-xs mt-1 max-w-sm">
-              Les vulnérabilités Petrix doivent avoir des CVE ID renseignés, et ceux-ci doivent apparaître dans les alertes/avis CERT-FR récents.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {correlations.map((corr: any) => {
-            const sevColor = CERT_SEV_COLOR[corr.vuln_severity?.toUpperCase()] ?? '#64748b';
-            return (
-              <div key={corr.vuln_id}
-                className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
-                {/* Vuln header */}
-                <div className="flex items-start gap-3 p-4 border-b border-gray-100 dark:border-gray-700">
-                  <div className="shrink-0 mt-0.5">
-                    <AlertTriangle style={{ width: 18, height: 18, color: sevColor }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="rounded-full px-2 py-0.5 text-xs font-bold text-white"
-                        style={{ background: sevColor }}>
-                        {({ critical:'Critique', high:'Élevé', medium:'Moyen', low:'Faible' } as Record<string,string>)[corr.vuln_severity] ?? corr.vuln_severity}
-                      </span>
-                      {corr.matched_cves.map((cve: string) => (
-                        <a key={cve}
-                          href={`https://nvd.nist.gov/vuln/detail/${cve}`}
-                          target="_blank" rel="noreferrer"
-                          className="flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 font-mono text-xs font-semibold text-blue-700 hover:underline dark:bg-blue-950/30 dark:text-blue-300">
-                          <ExternalLink className="h-2.5 w-2.5" />{cve}
-                        </a>
-                      ))}
-                    </div>
-                    <p className="font-semibold text-sm text-gray-900 dark:text-white">{corr.vuln_title}</p>
-                  </div>
-                  <div className="shrink-0 rounded-full bg-orange-100 px-2 py-1 text-xs font-bold text-orange-700 dark:bg-orange-950/30 dark:text-orange-300">
-                    {corr.cert_alerts.length} alerte{corr.cert_alerts.length > 1 ? 's' : ''} CERT-FR
-                  </div>
-                </div>
-
-                {/* Matched CERT-FR alerts */}
-                <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
-                  {corr.cert_alerts.map((alert: any) => {
-                    const alertSev = CERT_SEV_COLOR[alert.severity] ?? '#64748b';
-                    return (
-                      <div key={alert.cert_id} className="flex items-start gap-3 px-4 py-3 bg-gray-50/50 dark:bg-gray-700/20">
-                        <div className="shrink-0 mt-0.5 flex h-5 w-5 items-center justify-center rounded"
-                          style={{ background: alertSev + '20' }}>
-                          <Bell style={{ width: 11, height: 11, color: alertSev }} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2 mb-0.5">
-                            <span className="font-mono text-xs font-bold"
-                              style={{ color: alertSev }}>{alert.cert_id}</span>
-                            <span className="text-xs text-gray-400">{formatDate(alert.published)}</span>
-                          </div>
-                          <p className="text-xs text-gray-700 dark:text-gray-300 leading-snug">{cleanTitle(alert.title)}</p>
-                        </div>
-                        {alert.link && (
-                          <a href={alert.link} target="_blank" rel="noreferrer"
-                            className="shrink-0 rounded p-1 text-gray-400 hover:text-primary-600">
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </a>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 /**
@@ -710,7 +613,7 @@ function CorrelationsTab() {
  * Inclut un formulaire de création manuelle de vulnérabilité et des filtres par sévérité/statut.
  */
 export default function VulnerabilitiesPage() {
-  const [activeTab, setActiveTab] = useState<'feed' | 'internal' | 'correlations'>('feed');
+  const [activeTab, setActiveTab] = useState<'feed' | 'internal'>('feed');
   const [search, setSearch]       = useState('');
   const [sevFilter, setSev]       = useState('');
   const [statusFilter, setStatus] = useState('');
@@ -731,11 +634,10 @@ export default function VulnerabilitiesPage() {
 
       <div className="flex border-b border-gray-200 dark:border-gray-700">
         {[
-          { id: 'feed',         label: 'Veille CERT-FR',           icon: Radio },
-          { id: 'internal',     label: 'Vulnérabilités détectées', icon: Shield, count: data?.total },
-          { id: 'correlations', label: 'Corrélations CVE ↔ CERT-FR', icon: Link2 },
+          { id: 'feed',     label: 'Veille CERT-FR',           icon: Radio },
+          { id: 'internal', label: 'Vulnérabilités détectées', icon: Shield, count: data?.total },
         ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id as 'feed' | 'internal' | 'correlations')}
+          <button key={tab.id} onClick={() => setActiveTab(tab.id as 'feed' | 'internal')}
             className={`flex items-center gap-2 border-b-2 px-4 pb-3 text-sm font-medium transition-colors ${
               activeTab === tab.id
                 ? 'border-primary-600 text-primary-600'
@@ -750,8 +652,7 @@ export default function VulnerabilitiesPage() {
         ))}
       </div>
 
-      {activeTab === 'feed'         && <CertFrFeed />}
-      {activeTab === 'correlations' && <CorrelationsTab />}
+      {activeTab === 'feed' && <CertFrFeed />}
 
       {activeTab === 'internal' && (
         <>
