@@ -12,7 +12,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Info,
   Monitor, Server, Globe, ChevronDown, ChevronRight,
   BookOpen, Terminal, Clock, FileBarChart2, ListChecks, Sparkles,
-  TrendingUp, Zap, Target, Download, Wifi, Flame,
+  TrendingUp, Zap, Target, Download, Flame,
   Send, MessageSquare, Loader2, ExternalLink,
 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
@@ -71,15 +71,72 @@ interface FullReport {
 
 // ─── ANSSI-BP-028 Mapping ────────────────────────────────────────────────────
 
-const ANSSI_MAP: Record<string, { ref: string; label: string }[]> = {
-  ssh:         [{ ref: 'R21', label: 'Sécuriser le service SSH' }, { ref: 'R22', label: 'Authentification SSH par clé' }],
-  firewall:    [{ ref: 'R68', label: 'Activer le pare-feu local' }],
-  filevault:   [{ ref: 'R56', label: 'Chiffrement du disque dur' }],
-  system:      [{ ref: 'R51', label: 'Intégrité du système (SIP)' }, { ref: 'R52', label: 'Contrôle Gatekeeper' }],
-  users:       [{ ref: 'R30', label: 'Gestion des comptes locaux' }, { ref: 'R31', label: 'Désactivation compte invité' }],
-  services:    [{ ref: 'R62', label: 'Minimiser les services actifs' }],
-  updates:     [{ ref: 'R38', label: 'Mises à jour automatiques' }],
-  network:     [{ ref: 'R65', label: 'Réduire la surface réseau' }],
+// Mapping norme par module : { ref, label, norm (ANSSI|CIS_MACOS|CIS_WIN) }
+const NORM_MAP: Record<string, { ref: string; label: string; norm: 'ANSSI' | 'CIS_MAC' | 'CIS_WIN' }[]> = {
+  ssh:        [
+    { ref: 'ANSSI R4',    label: 'SSH v2 uniquement',            norm: 'ANSSI' },
+    { ref: 'ANSSI R5',    label: 'Limiter les tentatives SSH',    norm: 'ANSSI' },
+    { ref: 'CIS 2.3.1',   label: 'Remote Login désactivé',        norm: 'CIS_MAC' },
+  ],
+  firewall:   [
+    { ref: 'ANSSI R67',   label: 'Pare-feu local actif',          norm: 'ANSSI' },
+    { ref: 'CIS 2.2.2',   label: 'Pare-feu applicatif macOS',      norm: 'CIS_MAC' },
+    { ref: 'CIS 9.1',     label: 'Windows Defender Firewall',      norm: 'CIS_WIN' },
+  ],
+  filevault:  [
+    { ref: 'CIS 2.6.1',   label: 'FileVault activé',              norm: 'CIS_MAC' },
+  ],
+  system:     [
+    { ref: 'CIS 5.1.3',   label: 'SIP (System Integrity)',         norm: 'CIS_MAC' },
+    { ref: 'CIS 2.7.1',   label: 'Gatekeeper actif',              norm: 'CIS_MAC' },
+  ],
+  users:      [
+    { ref: 'ANSSI R30',   label: 'Comptes inactifs verrouillés',   norm: 'ANSSI' },
+    { ref: 'ANSSI R31',   label: 'Complexité mots de passe',        norm: 'ANSSI' },
+    { ref: 'CIS 5.6',     label: 'Compte invité macOS désactivé',  norm: 'CIS_MAC' },
+    { ref: 'CIS 2.3.1.1', label: 'Administrator intégré désactivé',norm: 'CIS_WIN' },
+    { ref: 'CIS 1.1.4',   label: 'Longueur minimale mdp ≥ 12',     norm: 'CIS_WIN' },
+  ],
+  services:   [
+    { ref: 'ANSSI R62',   label: 'Services inutiles désactivés',   norm: 'ANSSI' },
+    { ref: 'CIS 18.3.2',  label: 'SMBv1 désactivé (EternalBlue)',   norm: 'CIS_WIN' },
+  ],
+  updates:    [
+    { ref: 'CIS 1.1',     label: 'Mises à jour automatiques macOS', norm: 'CIS_MAC' },
+    { ref: 'ANSSI R61',   label: 'Patchs de sécurité appliqués',    norm: 'ANSSI' },
+  ],
+  network:    [
+    { ref: 'ANSSI R12',   label: 'Ports en écoute non nécessaires', norm: 'ANSSI' },
+    { ref: 'CIS 9.1',     label: 'Politique entrante Block',         norm: 'CIS_WIN' },
+  ],
+  kernel:     [
+    { ref: 'ANSSI R8',    label: 'ASLR activé',                     norm: 'ANSSI' },
+    { ref: 'ANSSI R10',   label: 'dmesg restreint',                  norm: 'ANSSI' },
+    { ref: 'ANSSI R13',   label: 'Protection ptrace (YAMA)',          norm: 'ANSSI' },
+  ],
+  pam:        [
+    { ref: 'ANSSI R68',   label: 'Verrouillage après tentatives',    norm: 'ANSSI' },
+    { ref: 'ANSSI R69',   label: 'Hachage SHA-512 / YESCRYPT',       norm: 'ANSSI' },
+  ],
+  logging:    [
+    { ref: 'ANSSI R71',   label: 'Démon syslog actif',               norm: 'ANSSI' },
+    { ref: 'ANSSI R72',   label: 'auditd configuré',                  norm: 'ANSSI' },
+  ],
+  filesystem: [
+    { ref: 'ANSSI R28',   label: 'noexec/nosuid sur /tmp',           norm: 'ANSSI' },
+    { ref: 'ANSSI R49',   label: 'Permissions /etc/shadow',           norm: 'ANSSI' },
+    { ref: 'ANSSI R57',   label: 'Binaires setuid non standard',      norm: 'ANSSI' },
+  ],
+  packages:   [
+    { ref: 'ANSSI R58',   label: 'Pas de paquets inutiles',           norm: 'ANSSI' },
+    { ref: 'ANSSI R61',   label: 'Mises à jour de sécurité',          norm: 'ANSSI' },
+  ],
+};
+
+const NORM_BADGE: Record<string, { label: string; cls: string; url: string }> = {
+  ANSSI:   { label: 'ANSSI-BP-028', cls: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-700', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+  CIS_MAC: { label: 'CIS macOS L1', cls: 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600', url: 'https://www.cisecurity.org/benchmark/apple_os' },
+  CIS_WIN: { label: 'CIS WS2019',   cls: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-700', url: 'https://www.cisecurity.org/benchmark/microsoft_windows_server' },
 };
 
 // ─── Severity config ─────────────────────────────────────────────────────────
@@ -128,7 +185,7 @@ function FindingCard({ f }: { f: Finding }) {
   const [open, setOpen] = useState(false);
   const sev = SEV[f.severity] ?? SEV.INFO;
   const SevIcon = sev.icon;
-  const anssi = ANSSI_MAP[f.module?.toLowerCase()] ?? [];
+  const norms = NORM_MAP[f.module?.toLowerCase()] ?? [];
   const isPassed = f.status === 'PASS';
   const isDanger = isDangerousPort(f);
 
@@ -201,13 +258,17 @@ function FindingCard({ f }: { f: Finding }) {
             </div>
           )}
 
-          {anssi.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {anssi.map(a => (
-                <span key={a.ref} className="flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700 dark:border-purple-700 dark:bg-purple-900/20 dark:text-purple-300">
-                  <BookOpen className="h-3 w-3" /> ANSSI {a.ref} — {a.label}
-                </span>
-              ))}
+          {norms.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {norms.map(n => {
+                const badge = NORM_BADGE[n.norm];
+                return (
+                  <span key={n.ref} title={n.label}
+                    className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-semibold ${badge.cls}`}>
+                    {n.ref}
+                  </span>
+                );
+              })}
             </div>
           )}
         </div>
@@ -485,10 +546,12 @@ function PrintableReport({ report, onClose, autoDownload = false }: { report: Fu
                           ))}
                         </div>
                       )}
-                      {(ANSSI_MAP[f.module?.toLowerCase()] ?? []).length > 0 && (
-                        <div style={{ marginTop: '8px' }}>
-                          {(ANSSI_MAP[f.module?.toLowerCase()] ?? []).map(a => (
-                            <span key={a.ref} style={{ display: 'inline-block', background: '#f3e8ff', color: '#7c3aed', border: '1px solid #e9d5ff', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600, margin: '2px' }}>📖 ANSSI {a.ref} — {a.label}</span>
+                      {(NORM_MAP[f.module?.toLowerCase()] ?? []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                          {(NORM_MAP[f.module?.toLowerCase()] ?? []).map((n: { ref: string; label: string; norm: string }) => (
+                            <span key={n.ref} title={n.label} style={{ fontSize: '10px', fontWeight: 600, border: '1px solid #e9d5ff', background: '#f5f3ff', color: '#7c3aed', borderRadius: '4px', padding: '1px 6px' }}>
+                              {n.ref}
+                            </span>
                           ))}
                         </div>
                       )}
@@ -530,14 +593,13 @@ function PrintableReport({ report, onClose, autoDownload = false }: { report: Fu
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type Tab = 'ai' | 'findings' | 'passed' | 'ports' | 'compliance';
+type Tab = 'findings' | 'ai' | 'compliance';
 
 // Detect if a network finding is a dangerous port
 /** Prédicat : renvoie true si le finding correspond à un port réseau considéré dangereux (FTP, Telnet, SMB, Redis…). */
 const isDangerousPort = (f: Finding) =>
   f.module === 'network' && f.check_name.includes('DANGEREUX');
 
-const isNetworkPort = (f: Finding) => f.module === 'network';
 
 /**
  * Page de rapport d'audit : sélectionne la session (via URL ou sélecteur),
@@ -547,7 +609,7 @@ const isNetworkPort = (f: Finding) => f.module === 'network';
 export default function AuditReportPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('ai');
+  const [tab, setTab] = useState<Tab>('findings');
   const [expandAll, setExpandAll] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([]);
@@ -610,14 +672,6 @@ export default function AuditReportPage() {
   }
 
   const failed  = findings.filter(f => f.status !== 'PASS');
-  const passed  = findings.filter(f => f.status === 'PASS');
-  const ports   = findings.filter(isNetworkPort).sort((a, b) => {
-    // dangerous ports first, then by check_id (port number)
-    if (isDangerousPort(a) && !isDangerousPort(b)) return -1;
-    if (!isDangerousPort(a) && isDangerousPort(b)) return 1;
-    return a.check_id.localeCompare(b.check_id);
-  });
-  const dangerousPorts = ports.filter(isDangerousPort);
 
   const bySev = (sev: string) => failed.filter(f => f.severity === sev);
   const criticals = bySev('CRITICAL');
@@ -629,9 +683,9 @@ export default function AuditReportPage() {
   const complianceRows = moduleNames.map(mod => {
     const modFindings = findings.filter(f => f.module === mod);
     const modFailed   = modFindings.filter(f => f.status !== 'PASS');
-    const anssi       = ANSSI_MAP[mod.toLowerCase()] ?? [];
+    const norms       = NORM_MAP[mod.toLowerCase()] ?? [];
     const ok          = modFailed.length === 0;
-    return { mod, total: modFindings.length, failed: modFailed.length, ok, anssi };
+    return { mod, total: modFindings.length, failed: modFailed.length, ok, norms };
   });
 
   const scoreColor = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-yellow-600' : score >= 40 ? 'text-orange-600' : 'text-red-600';
@@ -704,18 +758,16 @@ export default function AuditReportPage() {
       </div>
 
       {/* ── Tabs ── */}
-      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
         {[
-          { key: 'ai',         label: 'Analyse IA',                                         icon: Sparkles },
-          { key: 'findings',   label: `Findings (${failed.length})`,                        icon: AlertTriangle },
-          { key: 'passed',     label: `Réussis (${passed.length})`,                         icon: CheckCircle2 },
-          { key: 'ports',      label: `Ports réseau (${ports.length})`,                     icon: Wifi },
-          { key: 'compliance', label: 'Conformité ANSSI-BP-028',                            icon: BookOpen },
+          { key: 'findings',   label: `Écarts (${failed.length})`,   icon: AlertTriangle },
+          { key: 'ai',         label: 'Synthèse IA',                  icon: Sparkles },
+          { key: 'compliance', label: 'Conformité',                   icon: BookOpen },
         ].map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key as Tab)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors -mb-px ${
               tab === t.key
                 ? 'border-primary-600 text-primary-700 dark:text-primary-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
@@ -912,133 +964,25 @@ export default function AuditReportPage() {
         </div>
       )}
 
-      {/* ── Tab: Passed ── */}
-      {tab === 'passed' && (
-        <div className="space-y-2">
-          {passed.length === 0
-            ? <p className="text-center text-gray-400 py-12">Aucun contrôle réussi</p>
-            : passed.map(f => <FindingCard key={f.id} f={f} />)
-          }
-        </div>
-      )}
-
-      {/* ── Tab: Ports réseau ── */}
-      {tab === 'ports' && (
-        <div className="space-y-4">
-          {ports.length === 0 ? (
-            <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl bg-gray-50 dark:bg-gray-800 text-gray-400">
-              <Wifi className="h-10 w-10 opacity-30" />
-              <p className="font-semibold">Aucun port réseau détecté dans ce rapport</p>
-            </div>
-          ) : (
-            <>
-              {/* Summary bar */}
-              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-                <Wifi className="h-5 w-5 text-gray-400 shrink-0" />
-                <span className="text-sm text-gray-600 dark:text-gray-400">
-                  <strong className="text-gray-900 dark:text-white">{ports.length}</strong> port{ports.length > 1 ? 's' : ''} TCP en écoute
-                </span>
-                {dangerousPorts.length > 0 && (
-                  <span className="flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-0.5 text-xs font-bold text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                    <Flame className="h-3.5 w-3.5" /> {dangerousPorts.length} port{dangerousPorts.length > 1 ? 's' : ''} dangereux
-                  </span>
-                )}
-                <span className="flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> {ports.length - dangerousPorts.length} port{ports.length - dangerousPorts.length !== 1 ? 's' : ''} sûr{ports.length - dangerousPorts.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {/* Ports table */}
-              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase tracking-wide">
-                    <tr>
-                      <th className="px-4 py-3 text-left">Port</th>
-                      <th className="px-4 py-3 text-left">Description</th>
-                      <th className="px-4 py-3 text-left">Processus</th>
-                      <th className="px-4 py-3 text-center">Statut</th>
-                      <th className="px-4 py-3 text-left">Remédiation</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {ports.map(f => {
-                      const danger = isDangerousPort(f);
-                      const portNum = f.check_id.replace('NET-', '').replace(/^0+/, '') || f.check_id;
-                      const desc = f.check_name.replace(/^Port \d+\/tcp (DANGEREUX — |— )/, '');
-                      const sev = SEV[f.severity] ?? SEV.INFO;
-                      return (
-                        <tr
-                          key={f.id}
-                          className={`transition-colors ${
-                            danger
-                              ? 'bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20'
-                              : 'bg-white dark:bg-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                          }`}
-                        >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              {danger && <Flame className="h-4 w-4 text-red-500 shrink-0" />}
-                              <code className={`font-mono font-bold text-sm ${danger ? 'text-red-700 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>
-                                {portNum}/tcp
-                              </code>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="space-y-1">
-                              <p className={`text-sm ${danger ? 'text-red-700 dark:text-red-300 font-medium' : 'text-gray-700 dark:text-gray-300'}`}>
-                                {desc}
-                              </p>
-                              {danger && (
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${sev.badge}`}>
-                                  {sev.label}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 font-mono">
-                            {f.description || '—'}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {f.status === 'PASS' ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                                <CheckCircle2 className="h-3 w-3" /> OK
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                                <Flame className="h-3 w-3" /> Dangereux
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            {f.remediation ? (
-                              <code className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded px-1 py-0.5 break-all">
-                                {f.remediation}
-                              </code>
-                            ) : <span className="text-gray-300">—</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── Tab: Compliance ── */}
+      {/* ── Tab: Compliance multi-norme ── */}
       {tab === 'compliance' && (
-        <div className="space-y-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Correspondance des résultats avec le guide <strong>ANSSI-BP-028</strong> — Recommandations de sécurité pour les systèmes GNU/Linux & macOS.
-          </p>
-          <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+        <div className="space-y-5">
+          {/* Liens normes officielles */}
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(NORM_BADGE).map(([key, n]) => (
+              <a key={key} href={n.url} target="_blank" rel="noopener noreferrer"
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold hover:shadow-sm transition-all ${n.cls}`}>
+                {n.label} <ExternalLink className="h-3 w-3 opacity-60" />
+              </a>
+            ))}
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase tracking-wide">
                 <tr>
                   <th className="px-4 py-3 text-left">Module</th>
-                  <th className="px-4 py-3 text-left">Règles ANSSI</th>
+                  <th className="px-4 py-3 text-left">Normes applicables</th>
                   <th className="px-4 py-3 text-center">Contrôles</th>
                   <th className="px-4 py-3 text-center">Résultat</th>
                 </tr>
@@ -1049,12 +993,16 @@ export default function AuditReportPage() {
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white capitalize">{row.mod}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {row.anssi.length > 0
-                          ? row.anssi.map(a => (
-                            <span key={a.ref} className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:border-purple-700 dark:bg-purple-900/20 dark:text-purple-300">
-                              {a.ref}
-                            </span>
-                          ))
+                        {row.norms.length > 0
+                          ? row.norms.map(n => {
+                              const badge = NORM_BADGE[n.norm];
+                              return (
+                                <span key={n.ref} title={n.label}
+                                  className={`rounded border px-1.5 py-0.5 text-xs font-medium ${badge.cls}`}>
+                                  {n.ref}
+                                </span>
+                              );
+                            })
                           : <span className="text-gray-400 text-xs">—</span>
                         }
                       </div>
