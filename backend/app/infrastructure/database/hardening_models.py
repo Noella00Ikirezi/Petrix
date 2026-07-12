@@ -1,4 +1,9 @@
-"""SQLAlchemy models for the HCO Hardening module."""
+"""Modèles ORM SQLAlchemy pour le module de durcissement HCO (Hardening Compliance Officer).
+
+Représente le cycle de vie complet d'un audit de durcissement : cible (HardeningTarget),
+session d'audit (HardeningSession) et constats individuels (HardeningFinding).
+Les rapports XML importés depuis l'agent local Petrix sont persistés via ces modèles.
+"""
 import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
@@ -12,6 +17,8 @@ from app.infrastructure.database.connection import Base
 
 
 class HardeningSessionStatus(str, PyEnum):
+    """État d'avancement d'une session de durcissement."""
+
     PENDING = "pending"
     CONNECTING = "connecting"
     AUDITING = "auditing"
@@ -20,6 +27,15 @@ class HardeningSessionStatus(str, PyEnum):
 
 
 class HardeningTarget(Base):
+    """Machine cible d'un audit de durcissement, identifiée par son nom d'hôte et son OS.
+
+    Attributs notables :
+        host: Nom d'hôte ou adresse IP de la cible (``"local"`` pour les imports XML locaux).
+        os_type: Type d'OS audité (``"linux"``, ``"macos_silicon"``, ``"macos_intel"``).
+        credentials: Données d'accès SSH chiffrées (JSONB) — vide pour les audits locaux.
+        tags: Étiquettes libres (ex. ``["xml-import", "arm64", "CIS_macOS_L1"]``).
+    """
+
     __tablename__ = "hardening_targets"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -45,6 +61,16 @@ class HardeningTarget(Base):
 
 
 class HardeningSession(Base):
+    """Exécution d'un audit de durcissement sur une cible, avec score, grade et analyse IA.
+
+    Attributs notables :
+        modules_requested: Liste des modules demandés (ssh, users, kernel, etc.).
+        modules_completed: Liste des modules effectivement exécutés.
+        score / grade: Résultat global (score 0–100, grade A–F).
+        findings_summary: Compteurs par sévérité ``{CRITICAL, HIGH, MEDIUM, LOW}``.
+        ai_analysis: Analyse structurée générée par Mistral (résumé exécutif, top priorités…).
+    """
+
     __tablename__ = "hardening_sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -83,6 +109,16 @@ class HardeningSession(Base):
 
 
 class HardeningFinding(Base):
+    """Constat individuel issu d'un contrôle de durcissement (PASS ou FAIL).
+
+    Attributs notables :
+        check_id: Identifiant court du contrôle (ex. ``"SSH-001"``).
+        module: Module d'audit source (ssh, users, firewall, etc.).
+        found: Valeur observée sur le système audité.
+        expected: Valeur attendue selon le référentiel (ANSSI-BP-028, CIS…).
+        status: Résultat du contrôle (``"PASS"`` ou ``"FAIL"``).
+    """
+
     __tablename__ = "hardening_findings"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

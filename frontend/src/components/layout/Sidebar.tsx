@@ -1,3 +1,8 @@
+/**
+ * Barre de navigation latérale de l'application.
+ * Affiche le logo Petrix et les liens de navigation filtrés selon le rôle RBAC de l'utilisateur.
+ * Sur mobile, est contrôlée par la prop `isOpen` via une classe CSS.
+ */
 import { NavLink, Link } from 'react-router-dom';
 import {
   LayoutDashboard, Server, Shield, ShieldCheck, FileBarChart2,
@@ -5,6 +10,10 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
+/**
+ * Sidebar de navigation RBAC.
+ * @param isOpen - Indique si la sidebar est visible sur mobile (classe `sidebar-open`).
+ */
 export default function Sidebar({ isOpen }: { isOpen?: boolean }) {
   const user = useAuthStore(s => s.user);
   const role = user?.role ?? '';

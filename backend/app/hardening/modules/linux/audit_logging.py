@@ -1,4 +1,9 @@
-# Module d'audit : journalisation et surveillance
+"""Module d'audit de la journalisation et de la surveillance Linux.
+
+Vérifie les recommandations ANSSI-BP-028 v2.0 § 7.3 : démon syslog et
+rotation des logs (R71), sous-système auditd et règles d'audit (R72),
+confinement du MTA local (R73), intégrité des fichiers via AIDE/debsums (R74).
+"""
 # Référentiel : ANSSI-BP-028 v2.0 — Section 7.3
 # Checks : R71 (syslog/rsyslog), R72 (auditd), R73 (journaux service mail), R74 (intégrité fichiers)
 
@@ -271,6 +276,22 @@ def _r74_file_integrity(ssh):
 
 
 def run_audit(ssh, rules):
+    """Exécute l'audit complet de journalisation et de surveillance.
+
+    Enchaîne R71 (syslog), R72 (auditd), R73 (MTA) et R74 (intégrité)
+    puis agrège les résultats.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles (non utilisé pour ce module).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — services absents ou configurations
+                                    insuffisantes.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

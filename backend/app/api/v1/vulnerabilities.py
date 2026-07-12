@@ -1,4 +1,8 @@
-"""Vulnerabilities management endpoints."""
+"""Endpoints de gestion des vulnérabilités Petrix.
+
+Expose les opérations CRUD sur les findings de sécurité (Vulnerability) avec filtrage
+par sévérité, statut et actif, ainsi qu'un résumé statistique du portefeuille de vulnérabilités.
+"""
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
@@ -20,8 +24,11 @@ from app.api.v1.deps import require_permission
 router = APIRouter()
 
 
-# Schemas
+# Schémas Pydantic — requêtes et réponses de l'API de gestion des vulnérabilités
+
 class VulnBase(BaseModel):
+    """Champs communs à la création et à la réponse d'une vulnérabilité."""
+
     title: str
     description: str | None = None
     category: str = "general"
@@ -41,10 +48,18 @@ class VulnBase(BaseModel):
 
 
 class VulnCreate(VulnBase):
+    """Corps de la requête POST /vulnerabilities : création manuelle d'un finding."""
+
     asset_id: UUID | None = None
 
 
 class VulnUpdate(BaseModel):
+    """Corps de la requête PATCH /vulnerabilities/{id} : mise à jour partielle d'un finding.
+
+    Seuls les champs fournis sont modifiés. La transition vers le statut RESOLVED
+    positionne automatiquement le champ ``resolved_at``.
+    """
+
     title: str | None = None
     description: str | None = None
     category: str | None = None
@@ -57,6 +72,14 @@ class VulnUpdate(BaseModel):
 
 
 class VulnResponse(VulnBase):
+    """Représentation complète d'une vulnérabilité retournée par l'API.
+
+    Attributs supplémentaires par rapport à VulnBase :
+        ai_priority_score: Score de priorisation 0–100 calculé par le pipeline IA.
+        ai_remediation: Suggestion de remédiation générée par LLM.
+        discovered_by: Origine du finding (``"manual"``, ``"agent"``, ``"scanner"``).
+    """
+
     id: str
     asset_id: str | None
     scan_id: str | None
@@ -75,6 +98,8 @@ class VulnResponse(VulnBase):
 
 
 class VulnListResponse(BaseModel):
+    """Réponse paginée à GET /vulnerabilities."""
+
     items: List[VulnResponse]
     total: int
     skip: int
@@ -93,10 +118,10 @@ async def list_vulnerabilities(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.VULN_VIEW)),
 ):
-    """List vulnerabilities with optional filters."""
+    """Liste les vulnérabilités avec filtres optionnels (sévérité, statut, actif, recherche textuelle)."""
     query = db.query(Vulnerability)
 
-    # Apply filters
+    # Application des filtres de recherche
     if severity:
         query = query.filter(Vulnerability.severity == severity)
     if status:
@@ -159,7 +184,7 @@ async def get_vulnerability(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.VULN_VIEW)),
 ):
-    """Get a specific vulnerability."""
+    """Retourne le détail d'une vulnérabilité par son UUID."""
     vuln = db.query(Vulnerability).filter(Vulnerability.id == vuln_id).first()
     if not vuln:
         raise HTTPException(
@@ -205,7 +230,7 @@ async def create_vulnerability(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.VULN_CREATE)),
 ):
-    """Create a new vulnerability."""
+    """Crée manuellement un nouveau finding de sécurité."""
     vuln = Vulnerability(
         title=vuln_data.title,
         description=vuln_data.description,
@@ -269,7 +294,7 @@ async def update_vulnerability(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.VULN_EDIT)),
 ):
-    """Update a vulnerability."""
+    """Met à jour partiellement une vulnérabilité ; positionne ``resolved_at`` si le statut passe à RESOLVED."""
     vuln = db.query(Vulnerability).filter(Vulnerability.id == vuln_id).first()
     if not vuln:
         raise HTTPException(
@@ -279,7 +304,7 @@ async def update_vulnerability(
 
     update_data = vuln_data.model_dump(exclude_unset=True)
 
-    # Handle status change to resolved
+    # Mise à jour automatique de resolved_at lors du passage au statut RESOLVED
     if "status" in update_data and update_data["status"] == VulnStatus.RESOLVED:
         update_data["resolved_at"] = datetime.utcnow()
 
@@ -327,7 +352,7 @@ async def delete_vulnerability(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.VULN_DELETE)),
 ):
-    """Delete a vulnerability."""
+    """Supprime définitivement un finding de sécurité."""
     vuln = db.query(Vulnerability).filter(Vulnerability.id == vuln_id).first()
     if not vuln:
         raise HTTPException(
@@ -339,24 +364,24 @@ async def delete_vulnerability(
     db.commit()
 
 
-# Statistics
+# Statistiques
 @router.get("/stats/summary")
 async def get_vulns_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.VULN_VIEW)),
 ):
-    """Get vulnerabilities statistics."""
+    """Retourne un résumé statistique du portefeuille de vulnérabilités : total, ouvertes, répartition par sévérité et statut."""
     total = db.query(Vulnerability).count()
     open_count = db.query(Vulnerability).filter(Vulnerability.status == VulnStatus.OPEN).count()
 
-    # By severity
+    # Répartition par sévérité
     by_severity = {}
     for severity in Severity:
         count = db.query(Vulnerability).filter(Vulnerability.severity == severity).count()
         if count > 0:
             by_severity[severity.value] = count
 
-    # By status
+    # Répartition par statut de remédiation
     by_status = {}
     for status in VulnStatus:
         count = db.query(Vulnerability).filter(Vulnerability.status == status).count()

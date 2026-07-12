@@ -1,4 +1,9 @@
-# Module d'audit : détecte les services dangereux, obsolètes ou inutiles en cours d'exécution
+"""Module d'audit des services Linux actifs (dangereux, obsolètes ou inutiles).
+
+Vérifie que les services à protocole en clair (Telnet, FTP, rsh…) sont
+désactivés et que les services de sécurité obligatoires (auditd, rsyslog)
+sont actifs, selon le CIS Benchmark Linux v2.0 § 2.
+"""
 # Référentiel : CIS Benchmark Linux v2.0 — Section 2 (Services)
 
 # Services considérés dangereux (transmission en clair, protocoles obsolètes)
@@ -68,6 +73,24 @@ def _check_package_installed(ssh, package_name):
 
 
 def run_audit(ssh, rules):
+    """Vérifie les services dangereux et les services de sécurité requis.
+
+    Pour chaque service dangereux de ``DANGEROUS_SERVICES``, contrôle
+    s'il est actif via systemctl ou SysV. Vérifie ensuite que les services
+    de sécurité de ``REQUIRED_SECURITY_SERVICES`` sont bien démarrés.
+    Un check_id en doublon n'est jamais émis deux fois (ex. FTP multi-daemons).
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles (non utilisé pour ce module).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — services dangereux actifs ou services
+                                    requis manquants.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

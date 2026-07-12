@@ -1,4 +1,9 @@
-"""Celery tasks for network scan execution."""
+"""Tâches Celery pour l'exécution des scans réseau Petrix.
+
+Implémente la tâche ``execute_scan`` qui pilote les quatre phases d'un scan :
+découverte réseau (ARP/ICMP/nmap), scan de ports riche, vérification de
+vulnérabilités (nmap scripts) et calcul du score/grade final.
+"""
 
 import subprocess
 from datetime import datetime, timezone
@@ -11,17 +16,36 @@ from app.infrastructure.database.models import Scan, ScanStatus, ScanType
 
 
 def _utcnow():
+    """Retourne l'heure UTC courante sans information de fuseau (naive datetime)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _update_scan(db, scan: Scan, **kwargs):
+    """Met à jour les attributs du scan en base et effectue un commit immédiat.
+
+    Args:
+        db: Session SQLAlchemy active.
+        scan: Instance ``Scan`` à mettre à jour.
+        **kwargs: Paires attribut=valeur à appliquer sur le scan.
+    """
     for k, v in kwargs.items():
         setattr(scan, k, v)
     db.commit()
 
 
 def _calculate_score(findings: dict) -> tuple[float, str, str]:
-    """Return (score 0-100, grade A-F, risk_level)."""
+    """Calcule le score réseau (0–100), la note A–F et le niveau de risque.
+
+    Pénalités : CRITICAL –25, HIGH –10, MEDIUM –4, LOW –1.
+
+    Args:
+        findings: dict avec clés ``critical``, ``high``, ``medium``, ``low``
+                  contenant le nombre de findings par niveau.
+
+    Returns:
+        Tuple (score, grade, risk_level) où risk_level vaut
+        ``"low"``, ``"medium"``, ``"high"`` ou ``"critical"``.
+    """
     critical = findings.get("critical", 0)
     high = findings.get("high", 0)
     medium = findings.get("medium", 0)
@@ -45,7 +69,15 @@ def _calculate_score(findings: dict) -> tuple[float, str, str]:
 
 
 def _classify_port_finding(port: int, service_name: str) -> str:
-    """Classify a finding severity based on port/service."""
+    """Détermine la sévérité d'un port ouvert en fonction du port et du service.
+
+    Args:
+        port: Numéro de port TCP/UDP.
+        service_name: Nom du service identifié par nmap (peut être vide).
+
+    Returns:
+        Sévérité parmi ``"critical"``, ``"high"``, ``"medium"``.
+    """
     critical_ports = {21, 23, 69, 135, 139, 445, 512, 513, 514, 1099, 1521, 3389, 5900}
     high_ports = {22, 80, 443, 3306, 5432, 6379, 8080, 8443, 27017}
 
@@ -61,11 +93,27 @@ def _classify_port_finding(port: int, service_name: str) -> str:
 
 @celery_app.task(bind=True, name="scans.execute_scan", soft_time_limit=1800, time_limit=3600)
 def execute_scan(self, scan_id: str) -> dict:
-    """
-    Execute a network scan:
-    1. Host discovery (Scapy ARP/ICMP or nmap ping)
-    2. Port scan per host (nmap)
-    3. Score calculation + findings summary
+    """Exécute un scan réseau complet en quatre phases.
+
+    Phase 1 — Découverte : identifie les hôtes actifs sur la/les plages
+                           cibles via Scapy (ARP/ICMP) ou nmap ping.
+    Phase 2 — Scan de ports : scan riche (bannières, SSL, HTTP) sur chaque
+                              hôte découvert (ignorée pour ScanType.DISCOVERY).
+    Phase 3 — Vulnérabilités : scripts nmap ciblés sur les ports ouverts
+                               (uniquement pour ScanType.VULNERABILITY / FULL
+                               avec ``config.vuln_scan`` activé).
+    Phase 4 — Score : agrégation des findings, calcul score/grade/risk_level.
+
+    Les résultats intermédiaires sont stockés dans ``scan.config["_results"]``
+    pour être servis par l'endpoint ``/findings`` sans appel supplémentaire.
+
+    Args:
+        self: Référence Celery à la tâche courante (bind=True).
+        scan_id: UUID du ``Scan`` à exécuter.
+
+    Returns:
+        dict avec clés ``status``, ``hosts_found``, ``findings``,
+        ``grade``, ``score`` en cas de succès, ou ``error`` (str) en cas d'échec.
     """
     db = SessionLocal()
 

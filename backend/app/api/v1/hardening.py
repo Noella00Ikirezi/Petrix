@@ -1,4 +1,10 @@
-"""Hardening (HCO) API router — targets, sessions, findings, import XML."""
+"""Router API du module de durcissement HCO (Hardening Compliance Officer).
+
+Expose la gestion des cibles d'audit (HardeningTarget), des sessions d'analyse
+(HardeningSession) et des constats (HardeningFinding), l'import de rapports XML
+générés par l'agent local Petrix, l'analyse IA via Mistral, la corrélation avec
+les alertes CERT-FR et le téléchargement des scripts d'audit locaux.
+"""
 import asyncio
 import datetime
 import json
@@ -31,31 +37,42 @@ router = APIRouter()
 
 
 # =============================================================================
-# Access control helpers
+# Helpers de contrôle d'accès
 # =============================================================================
 
 def _is_admin(user: User) -> bool:
+    """Retourne True si l'utilisateur possède le rôle ADMIN."""
     return user.role == UserRole.ADMIN
 
 
 def _scope_query(query, model, user: User):
-    """Restrict a query to records owned by the user, unless admin."""
+    """Restreint une requête aux enregistrements appartenant à l'utilisateur, sauf pour les admins."""
     if not _is_admin(user):
         return query.filter(model.created_by_id == user.id)
     return query
 
 
 def _check_access(resource, user: User) -> None:
-    """Raise 403 if the resource is not owned by user and user is not admin."""
+    """Lève une HTTPException 403 si la ressource n'appartient pas à l'utilisateur (non-admin).
+
+    Args:
+        resource: Instance ORM possédant un attribut ``created_by_id``.
+        user: Utilisateur authentifié courant.
+
+    Raises:
+        HTTPException 403: Accès refusé si l'utilisateur n'est pas propriétaire ni admin.
+    """
     if not _is_admin(user) and resource.created_by_id != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
 
 # =============================================================================
-# Schemas
+# Schémas Pydantic — requêtes et réponses de l'API de durcissement
 # =============================================================================
 
 class TargetCreate(BaseModel):
+    """Corps de la requête POST /targets : enregistrement d'une nouvelle cible d'audit."""
+
     name: str
     os_type: str = "linux"
     description: Optional[str] = None
@@ -63,6 +80,8 @@ class TargetCreate(BaseModel):
 
 
 class LatestSessionSummary(BaseModel):
+    """Résumé de la dernière session d'audit d'une cible, inclus dans TargetResponse."""
+
     session_id: str
     status: str
     score: Optional[float]
@@ -75,6 +94,13 @@ class LatestSessionSummary(BaseModel):
 
 
 class TargetResponse(BaseModel):
+    """Représentation complète d'une cible de durcissement retournée par l'API.
+
+    Attributs notables :
+        latest_session: Résumé de la dernière session exécutée sur cette cible (ou None).
+        session_count: Nombre total de sessions d'audit enregistrées pour cette cible.
+    """
+
     id: str
     name: str
     host: str
@@ -92,11 +118,20 @@ class TargetResponse(BaseModel):
 
 
 class SessionCreate(BaseModel):
+    """Corps de la requête POST /sessions (dépréciée — utiliser POST /import-xml à la place)."""
+
     target_id: str
     modules: Optional[list[str]] = None
 
 
 class FindingResponse(BaseModel):
+    """Représentation d'un constat individuel de durcissement.
+
+    Attributs notables :
+        found / expected: Valeur observée vs valeur attendue selon le référentiel.
+        cve_ids: CVE associés via la table de correspondance ``cve_mapping.py``.
+    """
+
     id: str
     check_id: str
     check_name: str
@@ -111,6 +146,8 @@ class FindingResponse(BaseModel):
 
 
 class SessionResponse(BaseModel):
+    """Représentation complète d'une session de durcissement retournée par l'API."""
+
     id: str
     target_id: str
     target_name: str
@@ -134,6 +171,8 @@ class SessionResponse(BaseModel):
 
 
 class FullReportResponse(BaseModel):
+    """Rapport complet d'une session d'audit : session + liste des constats + analyse IA."""
+
     session: SessionResponse
     findings: list[FindingResponse]
     target_description: Optional[str] = None
@@ -142,18 +181,32 @@ class FullReportResponse(BaseModel):
 
 
 class AiChatRequest(BaseModel):
+    """Corps de la requête POST /sessions/{id}/ai-chat : question posée à l'IA Mistral."""
+
     question: str
 
 
 class AiChatResponse(BaseModel):
+    """Réponse de l'IA Mistral à une question contextualisée sur les findings d'une session."""
+
     answer: str
 
 
 # =============================================================================
-# Helpers
+# Fonctions de conversion ORM → schéma
 # =============================================================================
 
 def _target_to_response(t: HardeningTarget, db: Optional[Session] = None) -> TargetResponse:
+    """Convertit un ORM HardeningTarget en TargetResponse avec résumé de la dernière session.
+
+    Args:
+        t: Instance ORM de la cible à convertir.
+        db: Session de base de données optionnelle ; si fournie, charge le nombre de sessions
+            et le résumé de la plus récente.
+
+    Returns:
+        TargetResponse prête à être sérialisée par FastAPI.
+    """
     latest_session = None
     session_count = 0
 
@@ -196,6 +249,7 @@ def _target_to_response(t: HardeningTarget, db: Optional[Session] = None) -> Tar
 
 
 def _session_to_response(s: HardeningSession) -> SessionResponse:
+    """Convertit un ORM HardeningSession en SessionResponse avec les infos de sa cible."""
     target = s.target
     return SessionResponse(
         id=str(s.id),
@@ -231,6 +285,7 @@ def create_target(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Crée une nouvelle cible d'audit de durcissement pour l'utilisateur courant."""
     target = HardeningTarget(
         created_by_id=current_user.id,
         name=body.name,
@@ -252,6 +307,7 @@ def list_targets(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Liste les cibles de durcissement accessibles à l'utilisateur (toutes pour un admin)."""
     q = _scope_query(db.query(HardeningTarget), HardeningTarget, current_user)
     targets = q.order_by(HardeningTarget.created_at.desc()).all()
     return [_target_to_response(t, db) for t in targets]
@@ -263,6 +319,7 @@ def get_target(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Retourne le détail d'une cible de durcissement par son UUID."""
     t = db.query(HardeningTarget).filter(HardeningTarget.id == target_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Target not found")
@@ -276,6 +333,7 @@ def delete_target(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Supprime une cible de durcissement et toutes ses sessions associées (cascade)."""
     t = db.query(HardeningTarget).filter(HardeningTarget.id == target_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Target not found")
@@ -310,6 +368,7 @@ def list_sessions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Liste les 50 sessions de durcissement les plus récentes accessibles à l'utilisateur."""
     q = _scope_query(db.query(HardeningSession), HardeningSession, current_user)
     sessions = q.order_by(HardeningSession.started_at.desc()).limit(50).all()
     return [_session_to_response(s) for s in sessions]
@@ -321,6 +380,7 @@ def get_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Retourne le détail d'une session de durcissement par son UUID."""
     s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -334,6 +394,7 @@ def get_session_findings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Retourne la liste des constats d'une session, triés par sévérité décroissante."""
     s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -369,7 +430,7 @@ def get_full_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Retourne la session complète + tous les findings pour la vue rapport."""
+    """Retourne le rapport complet d'une session : métadonnées, constats triés et analyse IA."""
     s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -412,7 +473,19 @@ def get_full_report(
 
 def _mistral_chat(hostname: str, os_label: str, score: float, grade: str,
                   findings: list, question: str) -> str:
-    """Répond à une question sur un audit en utilisant les findings comme contexte."""
+    """Envoie une question contextuelle à Mistral API et retourne la réponse en texte libre.
+
+    Args:
+        hostname: Nom de la machine auditée (affiché dans le contexte du prompt).
+        os_label: Libellé de l'OS (macOS, Linux…) pour enrichir le contexte IA.
+        score: Score global de l'audit (0–100).
+        grade: Grade alphabétique (A–F).
+        findings: Liste de dicts ``{status, severity, name, found, expected}`` (max 30).
+        question: Question posée par l'utilisateur (max 500 caractères).
+
+    Returns:
+        Réponse textuelle de Mistral (max ~300 mots), ou message d'erreur lisible.
+    """
     api_key = os.environ.get("MISTRAL_API_KEY", "")
     if not api_key:
         return "L'analyse IA n'est pas disponible (clé API Mistral non configurée). Contactez votre administrateur."
@@ -469,7 +542,11 @@ async def ai_chat(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Pose une question sur un audit à l'IA Mistral (contexte : findings de la session)."""
+    """Répond à une question sur un audit en utilisant Mistral avec les findings comme contexte.
+
+    Délègue l'appel HTTP bloquant à Mistral dans un thread séparé via asyncio.to_thread
+    pour ne pas bloquer la boucle d'événements FastAPI.
+    """
     if not body.question or not body.question.strip():
         raise HTTPException(status_code=400, detail="La question ne peut pas être vide")
     if len(body.question) > 500:
@@ -515,7 +592,19 @@ async def ai_chat(
 
 def _mistral_analyze(hostname: str, os_label: str, score: float, grade: str,
                      findings: list) -> Optional[dict]:
-    """Appelle Mistral API pour analyser les findings et retourner une analyse structurée."""
+    """Génère une analyse structurée des findings via Mistral et retourne un dict JSON.
+
+    Args:
+        hostname: Nom de la machine auditée.
+        os_label: Libellé de l'OS pour enrichir le contexte IA.
+        score: Score global de l'audit (0–100).
+        grade: Grade alphabétique (A–F).
+        findings: Liste complète de dicts ``{status, severity, name, found, expected}``.
+
+    Returns:
+        Dict avec clés ``resume_executif``, ``top_priorites``, ``evaluation_anssi``,
+        ``plan_remediation``, ``risque_global`` ; ou None en cas d'erreur API/parsing.
+    """
     api_key = os.environ.get("MISTRAL_API_KEY", "")
     if not api_key:
         return None
@@ -577,6 +666,7 @@ Réponds avec ce JSON exact:
 # =============================================================================
 
 def _txt(el: Optional[ET.Element], tag: str, default: str = "") -> str:
+    """Extrait le texte d'un sous-élément XML, en retournant ``default`` si absent ou vide."""
     child = el.find(tag) if el is not None else None
     return (child.text or default).strip() if child is not None else default
 
@@ -587,9 +677,11 @@ async def import_xml_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Importe un rapport XML généré par petrix_audit_local.py.
-    Crée automatiquement la cible et la session dans Petrix.
+    """Importe un rapport XML généré par l'agent local ``petrix_audit_local.py``.
+
+    Crée automatiquement la cible (upsert par hostname + os_type) et la session
+    dans la base de données, puis lance l'analyse IA Mistral en arrière-plan.
+    Taille maximale acceptée : 5 Mo. Format attendu : ``<PetrixAuditReport>``.
     """
     if not file.filename or not file.filename.endswith(".xml"):
         raise HTTPException(status_code=400, detail="Fichier XML requis (.xml)")
@@ -744,9 +836,9 @@ _AGENT_FILES = {
     "windows": ("windows.ps1", None,                "petrix_agent_windows.bat"),
 }
 
-# Batch/PS1 polyglot header — runs in CMD without ExecutionPolicy restriction.
-# CMD executes lines 1-3 then exits; PowerShell sees lines 1-3 as unreachable
-# because it jumps to the PS1 content after the #--PETRIX_PS1_START-- marker.
+# En-tête polyglotte BAT/PS1 — s'exécute dans CMD sans restriction ExecutionPolicy.
+# CMD exécute les lignes 1-3 puis termine ; PowerShell les ignore et saute directement
+# au contenu PS1 après le marqueur #--PETRIX_PS1_START--.
 _WINDOWS_BAT_HEADER = """\
 @echo off
 setlocal
@@ -759,7 +851,11 @@ endlocal & exit /b %ERRORLEVEL%
 
 @router.get("/agent-script/{os_type}")
 def download_agent_script(os_type: str):
-    """Telecharge le script d'audit local pour l'OS demande (linux, macos, windows). Public."""
+    """Télécharge le script d'audit local pour l'OS demandé (linux, macos, windows). Endpoint public.
+
+    Pour Windows, retourne un fichier ``.bat`` polyglotte BAT/PS1 qui extrait et exécute
+    le script PowerShell embarqué sans requérir de modification de la politique d'exécution.
+    """
     entry = _AGENT_FILES.get(os_type.lower())
     if not entry:
         raise HTTPException(
@@ -787,7 +883,7 @@ def download_agent_script(os_type: str):
 # CVE / CERT-FR correlation
 # =============================================================================
 
-# Keywords per module used to match CERT-FR alerts
+# Mots-clés par module d'audit utilisés pour corréler les constats avec les alertes CERT-FR
 _MODULE_CERT_KW: dict[str, list[str]] = {
     "ssh":        ["ssh", "openssh", "secure shell", "sftp"],
     "firewall":   ["pare-feu", "firewall", "iptables", "nftables", "netfilter", " pf "],
@@ -808,7 +904,7 @@ _MODULE_CERT_KW: dict[str, list[str]] = {
 
 
 def _fetch_cert_fr_items() -> list[dict]:
-    """Fetch CERT-FR alerte + avis feeds and return combined items."""
+    """Récupère et fusionne les flux RSS CERT-FR (alertes + avis) ; retourne une liste vide en cas d'erreur."""
     from app.api.v1.feed import _fetch_rss
     try:
         alertes = _fetch_rss("alerte")["items"]
@@ -822,9 +918,18 @@ def _fetch_cert_fr_items() -> list[dict]:
 
 
 def _correlate_finding_to_cert(finding_module: str, check_name: str, cert_items: list[dict]) -> list[dict]:
-    """Return CERT-FR items matching a finding by keyword."""
+    """Retourne les alertes/avis CERT-FR correspondant à un constat par correspondance de mots-clés.
+
+    Args:
+        finding_module: Module d'audit source du constat (ssh, firewall, users…).
+        check_name: Nom du contrôle (utilisé pour extraire des mots-clés supplémentaires).
+        cert_items: Liste combinée des items CERT-FR (alertes + avis).
+
+    Returns:
+        Liste de au plus 3 dicts CERT-FR pertinents (cert_id, title, link, severity, cves, published).
+    """
     kws = _MODULE_CERT_KW.get(finding_module, [])
-    # Also add significant words from the check name
+    # Mots significatifs (≥ 4 caractères) extraits du nom du contrôle pour affiner le matching
     name_words = [w.lower() for w in re.findall(r"[a-zA-ZÀ-ÿ]{4,}", check_name) if len(w) >= 4]
     all_kws = kws + name_words
     matched = []
@@ -839,7 +944,7 @@ def _correlate_finding_to_cert(finding_module: str, check_name: str, cert_items:
                 "cves":     item.get("cves", []),
                 "published":item.get("published", ""),
             })
-    return matched[:3]  # cap at 3 matches per finding
+    return matched[:3]  # Limite à 3 correspondances par constat pour éviter le bruit
 
 
 @router.get("/sessions/{session_id}/cert-correlations")
@@ -848,9 +953,10 @@ async def get_cert_correlations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Pour une session donnée, retourne les findings FAIL correlés
-    avec les alertes/avis CERT-FR pertinents (matching par module et mots-clés).
+    """Pour une session donnée, corrèle les constats FAIL avec les alertes/avis CERT-FR.
+
+    Récupère les flux RSS CERT-FR en temps réel puis applique un matching par module
+    et mots-clés sur les 40 premiers constats FAIL triés par sévérité.
     """
     s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
     if not s:
@@ -897,6 +1003,7 @@ async def get_cert_correlations(
 
 @router.get("/modules")
 def list_available_modules(current_user: User = Depends(get_current_user)):
+    """Retourne la liste des modules d'audit disponibles par OS, avec références ANSSI-BP-028."""
     return {
         "supported_os": SUPPORTED_OS_TYPES,
         "modules_by_os": {

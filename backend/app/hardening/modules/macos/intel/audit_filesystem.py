@@ -1,7 +1,29 @@
-# Module d'audit : vérifie les permissions des fichiers sensibles sur macOS via SSH
-# Note : macOS utilise stat -f au lieu de stat -c (syntaxe BSD)
+"""Module d'audit des permissions de fichiers sensibles sur macOS Intel.
+
+Vérifie le mode et le propriétaire des fichiers critiques (/etc/passwd,
+/etc/sudoers, sshd_config) via la syntaxe BSD de ``stat`` (``stat -f``),
+différente de la syntaxe GNU Linux (``stat -c``).
+"""
+
 
 def run_audit(ssh, rules):
+    """Audite les permissions des fichiers sensibles sur macOS Intel.
+
+    Accepte la liste de fichiers à vérifier soit via ``rules["sensitive_files"]``
+    (liste de dicts ou de tuples) soit via la liste interne ``SENSITIVE_FILES``.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles ; clé reconnue — ``sensitive_files`` (liste de
+               dicts ``{path, mode, owner, group}`` ou de tuples
+               ``(path, mode, owner, group)``).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — permissions ou propriétaires incorrects.
+            passed   (list[dict]) — fichiers conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

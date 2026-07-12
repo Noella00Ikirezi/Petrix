@@ -1,4 +1,10 @@
-"""SQLAlchemy models for Petrix (unified from SecOP + Petrix Agent)."""
+"""Modèles ORM SQLAlchemy pour Petrix — entités métier principales.
+
+Consolide le modèle de données issu du prototype SIEM SecOP et du moteur de scan
+Petrix Agent en une source unique : User, Asset, Vulnerability, Scan et AuditLog.
+Les clés primaires sont des UUID v4 ; les colonnes JSONB stockent les données
+flexibles ou de type liste.
+"""
 import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
@@ -23,10 +29,12 @@ from app.core.permissions import UserRole
 
 
 # =============================================================================
-# ENUMS
+# ÉNUMÉRATIONS
 # =============================================================================
 
 class AssetType(str, PyEnum):
+    """Catégorie d'inventaire d'un actif réseau."""
+
     SERVER = "server"
     WORKSTATION = "workstation"
     NETWORK = "network"
@@ -39,6 +47,8 @@ class AssetType(str, PyEnum):
 
 
 class AssetStatus(str, PyEnum):
+    """État du cycle de vie opérationnel d'un actif."""
+
     ACTIVE = "active"
     INACTIVE = "inactive"
     MAINTENANCE = "maintenance"
@@ -46,6 +56,8 @@ class AssetStatus(str, PyEnum):
 
 
 class Severity(str, PyEnum):
+    """Échelle de criticité unifiée, partagée par les vulnérabilités et les actifs."""
+
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -54,6 +66,8 @@ class Severity(str, PyEnum):
 
 
 class VulnStatus(str, PyEnum):
+    """État du workflow de remédiation d'une vulnérabilité."""
+
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     RESOLVED = "resolved"
@@ -62,6 +76,8 @@ class VulnStatus(str, PyEnum):
 
 
 class ScanStatus(str, PyEnum):
+    """État d'exécution d'une campagne de scan."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -70,6 +86,8 @@ class ScanStatus(str, PyEnum):
 
 
 class ScanType(str, PyEnum):
+    """Périmètre fonctionnel d'une campagne de scan."""
+
     DISCOVERY = "discovery"
     VULNERABILITY = "vulnerability"
     COMPLIANCE = "compliance"
@@ -77,11 +95,19 @@ class ScanType(str, PyEnum):
 
 
 # =============================================================================
-# MODELS
+# MODÈLES ORM
 # =============================================================================
 
 class User(Base):
-    """User model with authentication and RBAC."""
+    """Utilisateur de la plateforme avec mot de passe bcrypt, rôle RBAC et verrouillage de compte.
+
+    Attributs notables :
+        role: Rôle RBAC (ADMIN, ANALYST, VIEWER) — contrôle les permissions sur les routes API.
+        must_change_password: Impose une réinitialisation du mot de passe à la prochaine connexion.
+        failed_login_attempts: Incrémenté à chaque mauvais mot de passe ; déclenche le verrouillage.
+        locked_until: Le compte est verrouillé tant que cet horodatage est dans le futur.
+    """
+
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -97,39 +123,48 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
-    # Security
+    # Sécurité du compte
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    # Profile
+    # Profil
     avatar_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Timestamps
+    # Horodatages
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, onupdate=datetime.utcnow, nullable=True
     )
 
-    # Relationships
+    # Relations
     scans: Mapped[List["Scan"]] = relationship("Scan", back_populates="created_by")
 
     @property
     def full_name(self) -> str:
+        """Retourne ``'Prénom Nom'`` si les deux champs sont renseignés, sinon l'adresse e-mail."""
         if self.first_name and self.last_name:
             return f"{self.first_name} {self.last_name}"
         return self.email
 
 
 class Asset(Base):
-    """Asset inventory model (servers, workstations, network devices, etc.)."""
+    """Actif réseau découvert automatiquement ou enregistré manuellement dans l'inventaire.
+
+    Attributs notables :
+        services: Liste JSONB des services ouverts rapportés par le Petrix Agent (port, nom, version).
+        tags: Étiquettes libres (ex. ``["agent", "production"]``).
+        custom_fields: Métadonnées arbitraires clé-valeur pour l'enrichissement spécifique au site.
+        last_scan_id: FK vers le dernier scan ayant découvert ou mis à jour cet actif.
+    """
+
     __tablename__ = "assets"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
-    # Identification
+    # Identification de l'actif
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     asset_type: Mapped[AssetType] = mapped_column(Enum(AssetType), nullable=False)
     status: Mapped[AssetStatus] = mapped_column(
@@ -139,32 +174,32 @@ class Asset(Base):
         Enum(Severity), default=Severity.MEDIUM
     )
 
-    # Network info (from Petrix Agent HostInfo)
+    # Informations réseau — issues du HostInfo du Petrix Agent
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), index=True, nullable=True)
     mac_address: Mapped[Optional[str]] = mapped_column(String(17), nullable=True)
     hostname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     fqdn: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # System info
+    # Informations système
     os: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     os_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    # Organization
+    # Organisation
     location: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     department: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     owner: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    # Flexible data
+    # Données flexibles (JSONB)
     services: Mapped[dict] = mapped_column(JSONB, default=list)
     tags: Mapped[List[str]] = mapped_column(JSONB, default=list)
     custom_fields: Mapped[dict] = mapped_column(JSONB, default=dict)
 
-    # Scan association — which scan last discovered this asset
+    # Association au dernier scan ayant découvert ou mis à jour cet actif
     last_scan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
-    # Metadata
+    # Métadonnées
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -172,7 +207,7 @@ class Asset(Base):
         DateTime, onupdate=datetime.utcnow, nullable=True
     )
 
-    # Relationships
+    # Relations
     vulnerabilities: Mapped[List["Vulnerability"]] = relationship(
         "Vulnerability", back_populates="asset", cascade="all, delete-orphan"
     )
@@ -184,7 +219,18 @@ class Asset(Base):
 
 
 class Vulnerability(Base):
-    """Vulnerability/Finding model (unified from SecOP + Petrix Agent)."""
+    """Finding de sécurité rattaché à un actif et optionnellement à une campagne de scan.
+
+    Supporte la création manuelle et l'ingestion automatisée depuis le Petrix Agent.
+    Le score CVSS 3.x, les identifiants CVE/CWE et la remédiation IA sont des champs
+    optionnels enrichis progressivement au cours du cycle de vie du finding.
+
+    Attributs notables :
+        discovered_by: Origine du finding (``"manual"``, ``"agent"``, ``"scanner"``).
+        ai_priority_score: Priorité 0–100 calculée par le pipeline d'enrichissement IA.
+        ai_remediation: Suggestion de remédiation générée par LLM (peut être None).
+    """
+
     __tablename__ = "vulnerabilities"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -206,35 +252,35 @@ class Vulnerability(Base):
         Enum(VulnStatus), default=VulnStatus.OPEN
     )
 
-    # CVSS (from Petrix Agent)
+    # Scores CVSS issus du Petrix Agent
     cvss_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     cvss_vector: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     cve_ids: Mapped[List[str]] = mapped_column(JSONB, default=list)
     cwe_ids: Mapped[List[str]] = mapped_column(JSONB, default=list)
 
-    # Context
+    # Contexte du finding
     affected_component: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     service: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     protocol: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Remediation
+    # Remédiation
     remediation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     remediation_effort: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     references: Mapped[List[str]] = mapped_column(JSONB, default=list)
 
-    # Assignment
+    # Attribution du finding à un analyste
     assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     due_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    # AI enrichment
+    # Enrichissement IA
     ai_priority_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     ai_remediation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Timestamps
+    # Horodatages
     discovered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     discovered_by: Mapped[str] = mapped_column(String(50), default="manual")
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -243,7 +289,7 @@ class Vulnerability(Base):
         DateTime, onupdate=datetime.utcnow, nullable=True
     )
 
-    # Relationships
+    # Relations
     asset: Mapped[Optional["Asset"]] = relationship("Asset", back_populates="vulnerabilities")
     scan: Mapped[Optional["Scan"]] = relationship("Scan", back_populates="vulnerabilities")
     assignee: Mapped[Optional["User"]] = relationship("User")
@@ -255,7 +301,16 @@ class Vulnerability(Base):
 
 
 class Scan(Base):
-    """Scan/Audit campaign model (from Petrix Agent)."""
+    """Campagne de scan lancée par un utilisateur, issue du moteur Petrix Agent.
+
+    Attributs notables :
+        targets: Liste JSONB des cibles (adresses IP, plages CIDR, etc.).
+        config: Paramètres de configuration du scan (modules activés, profil, etc.).
+        score / grade: Résultat agrégé de l'audit (score 0–100, grade A–F).
+        findings_summary: Compteurs par sévérité ``{critical, high, medium, low, info}``.
+        phases_completed: Liste ordonnée des phases terminées (discovery, vuln_scan, etc.).
+    """
+
     __tablename__ = "scans"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -265,7 +320,7 @@ class Scan(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
 
-    # General
+    # Informations générales
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     scan_type: Mapped[ScanType] = mapped_column(Enum(ScanType), nullable=False)
     status: Mapped[ScanStatus] = mapped_column(
@@ -273,13 +328,13 @@ class Scan(Base):
     )
     progress: Mapped[int] = mapped_column(Integer, default=0)
 
-    # Targets
+    # Cibles du scan (adresses IP, plages CIDR…)
     targets: Mapped[List[dict]] = mapped_column(JSONB, default=list)
 
-    # Configuration
+    # Paramètres de configuration du scan
     config: Mapped[dict] = mapped_column(JSONB, default=dict)
 
-    # Results (from Petrix Agent AuditScore)
+    # Résultats agrégés issus de l'AuditScore du Petrix Agent
     score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     grade: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
     risk_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
@@ -288,23 +343,23 @@ class Scan(Base):
         default={"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     )
 
-    # Phases
+    # Suivi des phases d'exécution
     current_phase: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     phases_completed: Mapped[List[str]] = mapped_column(JSONB, default=list)
 
-    # Timing
+    # Horodatages du cycle de vie du scan
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    # Errors
+    # Journalisation des erreurs
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     errors: Mapped[List[str]] = mapped_column(JSONB, default=list)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # Relationships
+    # Relations
     created_by: Mapped["User"] = relationship("User", back_populates="scans")
     vulnerabilities: Mapped[List["Vulnerability"]] = relationship(
         "Vulnerability", back_populates="scan"
@@ -319,7 +374,14 @@ class Scan(Base):
 
 
 class AuditLog(Base):
-    """Audit trail for all actions."""
+    """Piste d'audit immuable enregistrant toutes les actions significatives de la plateforme.
+
+    Attributs notables :
+        action: Verbe de l'action (``"login"``, ``"logout"``, ``"create"``, ``"delete"``…).
+        resource_type: Type de ressource concernée (``"auth"``, ``"asset"``, ``"scan"``…).
+        details: Contexte JSONB libre (paramètres, valeurs avant/après, etc.).
+    """
+
     __tablename__ = "audit_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -341,7 +403,7 @@ class AuditLog(Base):
         DateTime, default=datetime.utcnow, index=True
     )
 
-    # Relationships
+    # Relations
     user: Mapped[Optional["User"]] = relationship("User")
 
     __table_args__ = (

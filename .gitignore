@@ -1,7 +1,12 @@
-# Secrets
+# Secrets — NE JAMAIS committer ces fichiers
 .env
+.env.dev
+.env.prod
+.env.local
+!.env.template
 scripts/petrix_gitlab_deploy_key
 docs/RUNBOOK-SECRET.md
+docs/livrable/RUNBOOK-SECRET.md
 
 # Dependencies
 node_modules/

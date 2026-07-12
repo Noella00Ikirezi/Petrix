@@ -1,11 +1,21 @@
+/**
+ * Conteneur de mise en page principal de l'application authentifiée.
+ * Compose la Sidebar (fixe à gauche), le Header (en haut) et la zone de contenu scrollable.
+ * Gère l'overlay mobile pour masquer/afficher la sidebar sur petits écrans.
+ */
 import { ReactNode, useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 
+/** Props du Layout : children représente le contenu de la page active. */
 interface LayoutProps {
   children: ReactNode;
 }
 
+/**
+ * Layout applicatif : sidebar + header + main scrollable.
+ * @param children - Contenu de la page à afficher dans la zone principale.
+ */
 export default function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 

@@ -1,7 +1,13 @@
+/**
+ * Page des journaux d'audit (rôle auditeur ou admin requis).
+ * Affiche la liste paginée des événements de sécurité (connexions, changements de rôle, suppressions…)
+ * avec filtres par type d'action et ressource.
+ */
 import { useState, useEffect } from 'react';
 import { ClipboardList, ChevronLeft, ChevronRight } from 'lucide-react';
 import { auditLogsApi } from '@/api/client';
 
+/** Entrée du journal d'audit : action utilisateur tracée avec IP, user-agent et détails. */
 interface AuditLog {
   id: string;
   user_id: string | null;
@@ -28,6 +34,11 @@ const ACTION_COLORS: Record<string, string> = {
 
 const PAGE_SIZE = 20;
 
+/**
+ * Page des journaux d'audit paginés.
+ * Charge les logs via auditLogsApi.list avec pagination de 20 entrées par page
+ * et filtre dynamique par action (login, change_role…) et type de ressource.
+ */
 export default function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [total, setTotal] = useState(0);
@@ -40,6 +51,10 @@ export default function AuditLogsPage() {
     fetchLogs();
   }, [page, actionFilter, resourceFilter]);
 
+  /**
+   * Charge la page courante de logs en appliquant les filtres actifs.
+   * Déclenché au changement de page, d'actionFilter ou de resourceFilter.
+   */
   const fetchLogs = async () => {
     setIsLoading(true);
     try {
@@ -74,6 +89,10 @@ export default function AuditLogsPage() {
     });
   };
 
+  /**
+   * Formate l'objet de détails d'un log en une chaîne lisible "clé: valeur, …".
+   * @param details - Paires clé/valeur arbitraires stockées avec le log.
+   */
   const formatDetails = (details: Record<string, unknown>) => {
     if (!details || Object.keys(details).length === 0) return '-';
     return Object.entries(details)

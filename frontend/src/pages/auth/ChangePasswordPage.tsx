@@ -1,9 +1,18 @@
+/**
+ * Page de changement de mot de passe obligatoire.
+ * Affichée lors de la première connexion (flag must_change_password) ou sur demande.
+ * Valide la longueur minimale et la confirmation avant d'appeler /api/v1/auth/change-password.
+ */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@/stores/authStore';
 
+/**
+ * Formulaire de réinitialisation du mot de passe utilisateur.
+ * Utilise le token JWT courant pour authentifier la requête POST /auth/change-password.
+ */
 export default function ChangePasswordPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

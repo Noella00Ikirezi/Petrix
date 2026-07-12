@@ -1,3 +1,8 @@
+/**
+ * Point d'entrée de l'application React.
+ * Monte l'arbre de providers : QueryClientProvider (React Query), BrowserRouter (routing),
+ * Toaster (notifications), et initialise le mode sombre par défaut via localStorage.
+ */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';

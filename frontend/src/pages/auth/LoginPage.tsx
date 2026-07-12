@@ -1,3 +1,8 @@
+/**
+ * Page de connexion à deux étapes (MFA).
+ * Phase 1 : saisie email/mot de passe → envoi OTP par email.
+ * Phase 2 : saisie du code OTP à 6 chiffres → obtention des tokens JWT et redirection.
+ */
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loader2, ArrowLeft } from 'lucide-react';
@@ -7,6 +12,10 @@ import { useAuthStore } from '@/stores/authStore';
 
 type Phase = 'credentials' | 'otp';
 
+/**
+ * Page de connexion Petrix avec authentification multi-facteurs (email OTP).
+ * Gère la transition entre les deux phases et le focus automatique sur les champs OTP.
+ */
 export default function LoginPage() {
   const [phase, setPhase] = useState<Phase>('credentials');
   const [email, setEmail] = useState('');
@@ -22,6 +31,10 @@ export default function LoginPage() {
     if (phase === 'otp') otpRefs.current[0]?.focus();
   }, [phase]);
 
+  /**
+   * Soumet les identifiants et bascule en phase OTP si le backend renvoie un mfa_token,
+   * ou termine la connexion directement si un access_token est immédiatement retourné.
+   */
   const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -51,6 +64,10 @@ export default function LoginPage() {
     }
   };
 
+  /**
+   * Vérifie le code OTP auprès du backend et finalise l'authentification.
+   * @param code - Code à 6 chiffres saisi par l'utilisateur.
+   */
   const verifyOtp = async (code: string) => {
     setIsLoading(true);
     try {
@@ -70,6 +87,12 @@ export default function LoginPage() {
     }
   };
 
+  /**
+   * Gère la saisie dans un champ OTP individuel : avance le focus, gère le collage
+   * de 6 chiffres d'un coup et déclenche la vérification automatique quand tous les champs sont remplis.
+   * @param index - Position du champ (0–5).
+   * @param value - Caractère(s) saisi(s).
+   */
   const handleOtpChange = (index: number, value: string) => {
     if (value.length > 1) {
       const digits = value.replace(/\D/g, '').slice(0, 6).split('');

@@ -1,4 +1,6 @@
-"""Scans management endpoints."""
+"""Endpoints de pilotage des scans réseau : création, démarrage, annulation et consultation des résultats.
+Supporte deux modes : scans asynchrones via Celery et scans pilotés par l'agent local — protégé par SCAN_*.
+"""
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
@@ -15,13 +17,18 @@ from app.api.v1.deps import require_permission
 router = APIRouter()
 
 
-# Schemas
+# Schémas Pydantic — requêtes et réponses de l'API de scans
+
 class ScanTarget(BaseModel):
+    """Cible d'un scan : IP, nom d'hôte, plage (ex. 192.168.1.0-254) ou sous-réseau CIDR."""
+
     type: str  # ip, hostname, range, subnet
     value: str
 
 
 class ScanConfig(BaseModel):
+    """Paramètres de configuration du scan : plage de ports, timing Nmap et activation des scripts NSE."""
+
     model_config = {"extra": "allow"}
     ports: str = "1-1000"
     timing: str = "T3"
@@ -30,6 +37,8 @@ class ScanConfig(BaseModel):
 
 
 class ScanCreate(BaseModel):
+    """Corps de la requête POST /scans : définition d'un nouveau scan avec ses cibles et sa configuration."""
+
     name: str
     scan_type: ScanType
     targets: List[ScanTarget]
@@ -38,6 +47,8 @@ class ScanCreate(BaseModel):
 
 
 class ScanResponse(BaseModel):
+    """État complet d'un scan : progression, résultats, score de sécurité et journal des phases."""
+
     id: str
     name: str
     scan_type: ScanType
@@ -64,6 +75,8 @@ class ScanResponse(BaseModel):
 
 
 class ScanListResponse(BaseModel):
+    """Réponse paginée à GET /scans."""
+
     items: List[ScanResponse]
     total: int
     skip: int
@@ -80,7 +93,7 @@ async def list_scans(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_VIEW)),
 ):
-    """List scans with optional filters."""
+    """Liste les scans avec filtres optionnels (type, statut) — réservé aux rôles possédant SCAN_VIEW."""
     query = db.query(Scan)
 
     if scan_type:
@@ -129,7 +142,7 @@ async def get_scan(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_VIEW)),
 ):
-    """Get a specific scan."""
+    """Retourne l'état détaillé d'un scan par son UUID — réservé SCAN_VIEW."""
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(
@@ -167,7 +180,7 @@ async def create_scan(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_CREATE)),
 ):
-    """Create a new scan."""
+    """Crée un nouveau scan en statut PENDING ; si config.agent=True, démarre immédiatement en RUNNING — réservé SCAN_CREATE."""
     config_dict = scan_data.config.model_dump()
     is_agent = config_dict.get("agent", False)
 
@@ -218,7 +231,7 @@ async def start_scan(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_EXECUTE)),
 ):
-    """Start a pending scan."""
+    """Passe un scan de PENDING à RUNNING et déclenche la tâche Celery d'exécution — réservé SCAN_EXECUTE."""
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(
@@ -232,7 +245,6 @@ async def start_scan(
             detail=f"Cannot start scan in {scan.status.value} status",
         )
 
-    # Update status to running
     scan.status = ScanStatus.RUNNING
     scan.started_at = datetime.utcnow()
     scan.current_phase = "initialization"
@@ -272,7 +284,7 @@ async def cancel_scan(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_EXECUTE)),
 ):
-    """Cancel a running scan."""
+    """Annule un scan PENDING ou RUNNING et enregistre la durée écoulée — réservé SCAN_EXECUTE."""
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(
@@ -323,7 +335,7 @@ async def delete_scan(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_DELETE)),
 ):
-    """Delete a scan."""
+    """Supprime un scan (interdit si le scan est en cours d'exécution) — réservé SCAN_DELETE."""
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(
@@ -347,7 +359,7 @@ async def get_scan_findings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_VIEW)),
 ):
-    """Return detailed host/port findings for a completed scan."""
+    """Retourne les hôtes découverts et les findings détaillés (hôtes/ports) d'un scan terminé — réservé SCAN_VIEW."""
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
@@ -369,7 +381,7 @@ async def receive_agent_results(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_EXECUTE)),
 ):
-    """Receive results pushed by a local petrix-agent — saves findings and auto-creates assets."""
+    """Reçoit les résultats poussés par l'agent Petrix local, sauvegarde les findings et crée/met à jour les assets découverts — réservé SCAN_EXECUTE."""
     from app.infrastructure.database.models import Asset, AssetType, AssetStatus, Severity as DbSeverity
 
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
@@ -379,7 +391,7 @@ async def receive_agent_results(
     hosts = data.get("hosts", [])
     findings = data.get("findings", [])
 
-    # Auto-create or update assets for each discovered host, then link to this scan
+    # Upsert des assets découverts : création si absent, mise à jour si déjà présent par IP
     assets_created = 0
     for host in hosts:
         ip = host.get("ip")
@@ -401,7 +413,6 @@ async def receive_agent_results(
             db.add(asset)
             assets_created += 1
         else:
-            # Update existing asset with fresh info
             if host.get("hostname"):
                 existing.hostname = host["hostname"]
             if host.get("os"):
@@ -424,7 +435,7 @@ async def get_scan_assets(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_VIEW)),
 ):
-    """Return assets discovered/associated with a specific scan."""
+    """Retourne les assets découverts ou mis à jour lors d'un scan spécifique — réservé SCAN_VIEW."""
     from app.infrastructure.database.models import Asset as AssetModel
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -453,7 +464,7 @@ async def agent_complete(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_EXECUTE)),
 ):
-    """Mark an agent-driven scan as completed."""
+    """Marque un scan agent comme terminé, calcule la durée et le niveau de risque — réservé SCAN_EXECUTE."""
     from datetime import datetime
     scan = db.query(Scan).filter(Scan.id == scan_id).first()
     if not scan:
@@ -482,24 +493,24 @@ async def get_scans_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.SCAN_VIEW)),
 ):
-    """Get scans statistics."""
+    """Retourne les statistiques des scans : répartition par statut, type et 5 derniers scans complétés — réservé SCAN_VIEW."""
     total = db.query(Scan).count()
 
-    # By status
+    # Répartition par statut
     by_status = {}
     for status in ScanStatus:
         count = db.query(Scan).filter(Scan.status == status).count()
         if count > 0:
             by_status[status.value] = count
 
-    # By type
+    # Répartition par type de scan
     by_type = {}
     for scan_type in ScanType:
         count = db.query(Scan).filter(Scan.scan_type == scan_type).count()
         if count > 0:
             by_type[scan_type.value] = count
 
-    # Recent completed
+    # Derniers scans terminés
     recent_completed = (
         db.query(Scan)
         .filter(Scan.status == ScanStatus.COMPLETED)

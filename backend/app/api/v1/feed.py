@@ -1,4 +1,7 @@
-"""Proxy sécurisé pour les flux CERT-FR (ANSSI) — alertes, avis, bulletins."""
+"""Proxy serveur-side pour les flux RSS CERT-FR (ANSSI) : alertes, avis, durcissement et IOC.
+Contourne les restrictions CORS du navigateur, enrichit chaque item avec une sévérité déduite et corrèle
+les vulnérabilités Petrix avec les avis CERT-FR par intersection des identifiants CVE.
+"""
 import asyncio
 import re
 from xml.etree import ElementTree as ET
@@ -40,6 +43,7 @@ _SEVERITY_KEYWORDS = {
 
 
 def _strip_html(text: str) -> str:
+    """Supprime les balises HTML et les artéfacts Markdown résiduels pour produire un texte brut."""
     text = re.sub(r"<[^>]+>", " ", text or "")
     # Nettoyer les balises Markdown résiduelles CERT-FR
     text = re.sub(r"\\\[([^\]]*)\\\]", r"[\1]", text)
@@ -50,6 +54,7 @@ def _strip_html(text: str) -> str:
 
 
 def _guess_severity(text: str) -> str:
+    """Déduit la sévérité (CRITICAL/HIGH/MEDIUM/LOW) d'un texte CERT-FR par correspondance de mots-clés."""
     t = text.lower()
     for sev, keywords in _SEVERITY_KEYWORDS.items():
         if any(kw in t for kw in keywords):
@@ -58,6 +63,7 @@ def _guess_severity(text: str) -> str:
 
 
 def _extract_cert_id(title: str, link: str) -> str:
+    """Extrait l'identifiant CERTFR-XXXX-XXX-NNN depuis l'URL ou, en fallback, depuis le titre."""
     # L'identifiant CERTFR est dans l'URL : /alerte/CERTFR-2025-ALE-001/
     m = re.search(r"CERTFR-\d{4}-[A-Z]+-\d+", link, re.IGNORECASE)
     if m:
@@ -70,6 +76,7 @@ def _extract_cert_id(title: str, link: str) -> str:
 
 
 def _fetch_rss(feed_type: str) -> dict:
+    """Télécharge et parse le flux RSS CERT-FR du type demandé ; retourne les 30 derniers items enrichis (sévérité, CVE)."""
     url = _FEEDS.get(feed_type)
     if not url:
         raise ValueError(f"Feed inconnu : {feed_type}")
@@ -138,10 +145,7 @@ async def get_cert_fr_feed(
     feed_type: str = Query("alerte", enum=["alerte", "avis", "dur", "ioc", "actualite"]),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Proxy les flux RSS CERT-FR (ANSSI) depuis le serveur Petrix.
-    Évite les restrictions CORS et réseau côté navigateur.
-    """
+    """Proxy les flux RSS CERT-FR (ANSSI) depuis le serveur — contourne les restrictions CORS côté navigateur."""
     result = await asyncio.to_thread(_fetch_rss, feed_type)
     return result
 
@@ -302,14 +306,13 @@ async def get_vuln_correlations(
     if not vulns_with_cves:
         return {"correlations": [], "cert_items_fetched": 0}
 
-    # Fetch CERT-FR
     alertes, avis = await asyncio.gather(
         asyncio.to_thread(_fetch_rss, "alerte"),
         asyncio.to_thread(_fetch_rss, "avis"),
     )
     cert_items = alertes["items"] + avis["items"]
 
-    # Index CERT-FR items by CVE for O(1) lookup
+    # Indexation des items CERT-FR par CVE pour une corrélation en O(1)
     cve_to_certs: dict[str, list[dict]] = {}
     for item in cert_items:
         for cve in item.get("cves", []):
@@ -333,7 +336,7 @@ async def get_vuln_correlations(
                 matched_cves.append(cve_upper)
 
         if matched_certs:
-            # Deduplicate certs by cert_id
+            # Déduplication des alertes par cert_id
             seen = set()
             unique_certs = []
             for c in matched_certs:
@@ -350,7 +353,7 @@ async def get_vuln_correlations(
                 "cert_alerts":   unique_certs[:5],
             })
 
-    # Sort by most matched certs first
+    # Tri par nombre d'alertes CERT-FR correspondantes (les plus exposées en premier)
     correlations.sort(key=lambda x: len(x["cert_alerts"]), reverse=True)
 
     return {

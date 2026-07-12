@@ -1,3 +1,8 @@
+/**
+ * Page d'accueil publique de Petrix (landing page).
+ * Présente la plateforme, ses trois modules clés et les statistiques via un design system CSS
+ * injecté inline. Embarque un moteur 3D Canvas WebGL-free pour les visualisations interactives.
+ */
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -103,7 +108,12 @@ footer.hp-footer{border-top:1px solid var(--line);margin-top:clamp(32px,5vw,64px
 }
 `;
 
-/* ── Moteur 3D ───────────────────────────────────────────────────────────── */
+/**
+ * Moteur de rendu 3D léger basé sur Canvas 2D.
+ * Projette en perspective des formes géométriques paramétriques (icosaèdre, anneaux, pile),
+ * anime la rotation et répond aux interactions souris (survol et glisser-déposer).
+ * Respecte `prefers-reduced-motion` pour désactiver l'animation.
+ */
 function run3D() {
   const LIME = getComputedStyle(document.documentElement).getPropertyValue('--lime').trim() || '#60a5fa';
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -168,7 +178,10 @@ function run3D() {
   if(reduced)items.forEach(draw);else requestAnimationFrame(loop);
 }
 
-/* ── Composant principal ─────────────────────────────────────────────────── */
+/**
+ * Composant de la landing page : initialise les animations d'apparition (IntersectionObserver),
+ * les effets hover sur les modules et le moteur 3D Canvas, puis rend la structure HTML complète.
+ */
 export default function HomePage() {
   useEffect(() => {
     const io = new IntersectionObserver(

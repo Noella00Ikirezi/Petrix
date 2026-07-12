@@ -1,4 +1,9 @@
-"""Database connection and session management."""
+"""Gestion des connexions et des sessions de base de données pour Petrix.
+
+Expose les moteurs SQLAlchemy synchrone et asynchrone, les fabriques de sessions,
+et les injecteurs de dépendances FastAPI (get_db, get_async_db) utilisés par tous
+les routeurs de la couche API.
+"""
 from typing import Generator, AsyncGenerator
 
 from sqlalchemy import create_engine
@@ -7,7 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 
 from app.config import settings
 
-# Sync engine (for migrations and sync operations)
+# Moteur synchrone — utilisé par Alembic et les dépendances synchrones
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
@@ -15,7 +20,7 @@ engine = create_engine(
     max_overflow=20,
 )
 
-# Async engine
+# Moteur asynchrone — remplace le schéma postgresql:// par postgresql+asyncpg://
 async_database_url = settings.database_url.replace(
     "postgresql://", "postgresql+asyncpg://"
 )
@@ -26,14 +31,14 @@ async_engine = create_async_engine(
     max_overflow=20,
 )
 
-# Sync session factory
+# Fabrique de sessions synchrones
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine,
 )
 
-# Async session factory
+# Fabrique de sessions asynchrones
 AsyncSessionLocal = async_sessionmaker(
     async_engine,
     class_=AsyncSession,
@@ -42,12 +47,15 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
-# Base class for models
+# Classe de base déclarative partagée par tous les modèles ORM
 Base = declarative_base()
 
 
 def get_db() -> Generator:
-    """Dependency to get sync database session."""
+    """Fournit une session synchrone et garantit sa fermeture même en cas d'exception.
+
+    Utilisé comme dépendance FastAPI : ``db: Session = Depends(get_db)``.
+    """
     db = SessionLocal()
     try:
         yield db
@@ -56,7 +64,11 @@ def get_db() -> Generator:
 
 
 async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency to get async database session."""
+    """Fournit une session asynchrone et garantit sa fermeture même en cas d'exception.
+
+    Utilisé comme dépendance FastAPI :
+    ``session: AsyncSession = Depends(get_async_db)``.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session

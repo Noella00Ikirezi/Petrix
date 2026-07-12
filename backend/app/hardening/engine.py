@@ -1,4 +1,8 @@
-"""HCO Hardening Engine — orchestrates audit modules over SSH."""
+"""Moteur principal HCO (Hardening Configuration Operator).
+
+Orchestre l'exécution des modules d'audit sur une cible distante via SSH,
+aggrège les findings, calcule le score ANSSI-BP-028 (0–100) et la note A–F.
+"""
 from __future__ import annotations
 
 import logging
@@ -78,6 +82,20 @@ _GRADE_THRESHOLDS = [(90, "A"), (75, "B"), (60, "C"), (40, "D"), (0, "F")]
 
 
 def _compute_score(findings: list[dict]) -> tuple[float, str]:
+    """Calcule le score HCO (0–100) et la note A–F à partir des findings.
+
+    Chaque finding réduit le score selon son niveau de sévérité :
+    CRITICAL –15, HIGH –8, MEDIUM –3, LOW –1, INFO 0.
+    Le score est borné à [0, 100].
+
+    Args:
+        findings: liste de dicts de findings, chacun contenant au moins
+                  la clé ``severity`` (CRITICAL/HIGH/MEDIUM/LOW/INFO).
+
+    Returns:
+        Tuple (score, grade) où score est un float arrondi à 1 décimale
+        et grade est une lettre parmi A, B, C, D, F.
+    """
     counts: dict[str, int] = {}
     for f in findings:
         sev = f.get("severity", "INFO").upper()
@@ -99,15 +117,35 @@ def run_hardening_audit(
     rules: Optional[dict] = None,
     progress_callback: Optional[Callable[[str, int], None]] = None,
 ) -> dict:
-    """
-    Connect to target via SSH, run HCO audit modules, return aggregated results.
+    """Lance un audit HCO complet via SSH et retourne les résultats agrégés.
 
-    os_type: "linux" | "macos_intel" | "macos_silicon"
+    Se connecte à la cible, exécute chaque module d'audit demandé dans l'ordre,
+    puis calcule le score global et la note A–F selon la grille de sévérité HCO.
+    La connexion SSH est fermée dans un bloc ``finally`` même en cas d'erreur.
 
-    Returns dict with keys:
-        host, os_type, modules_completed, all_findings, all_passed,
-        score, grade, findings_summary, total_checks, passed_checks,
-        module_results, error
+    Args:
+        host: Adresse IP ou nom DNS de la cible.
+        port: Port SSH (défaut : 22).
+        username: Compte SSH à utiliser (défaut : root).
+        password: Mot de passe SSH (mutuellement exclusif avec key_path).
+        key_path: Chemin vers la clé privée SSH (prend la priorité sur password).
+        os_type: Type de système cible — ``"linux"``, ``"macos_intel"``
+                 ou ``"macos_silicon"``.
+        modules: Liste de noms de modules à exécuter ; ``None`` = tous les modules
+                 disponibles pour l'os_type.
+        rules: Surcharge des règles par défaut (ex. ``{"max_auth_tries": 3}``).
+        progress_callback: Callable optionnel ``(module_name, percent)`` appelé
+                           après chaque module pour signaler l'avancement.
+
+    Returns:
+        dict avec les clés :
+            host (str), os_type (str), modules_completed (list[str]),
+            all_findings (list[dict]), all_passed (list[dict]),
+            score (float), grade (str), findings_summary (dict),
+            total_checks (int), passed_checks (int),
+            module_results (dict), error (str | None).
+        En cas d'erreur précoce (os_type inconnu, échec SSH), seul ``error``
+        est renseigné.
     """
     available = OS_MODULE_MAP.get(os_type)
     if available is None:

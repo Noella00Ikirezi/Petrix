@@ -1,3 +1,9 @@
+/**
+ * Tableau de bord principal de Petrix.
+ * Agrège les métriques clés (score HCO moyen, vulnérabilités par sévérité, tendance 7 jours,
+ * derniers audits) via l'endpoint /dashboard. La vue est contextuelle : « globale » pour les admins,
+ * « personnelle » pour les autres rôles.
+ */
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -50,6 +56,11 @@ const GRADE_META: Record<string, { color: string; label: string }> = {
   F: { color: '#ef4444', label: 'Critique' },
 };
 
+/**
+ * Convertit un score numérique (0-100) en grade alphabétique ANSSI.
+ * @param score - Score de conformité HCO entre 0 et 100.
+ * @returns Grade A (≥90), B (≥75), C (≥60), D (≥40) ou F (<40).
+ */
 function scoreToGrade(score: number): string {
   if (score >= 90) return 'A';
   if (score >= 75) return 'B';
@@ -60,6 +71,11 @@ function scoreToGrade(score: number): string {
 
 // ─── Jauge circulaire ─────────────────────────────────────────────────────────
 
+/**
+ * Jauge circulaire SVG affichant le score de conformité et le grade correspondant.
+ * @param score - Score entre 0 et 100, ou null si aucun audit n'est disponible.
+ * @param size - Taille du SVG en pixels (défaut : 120).
+ */
 function ScoreRing({ score, size = 120 }: { score: number | null; size?: number }) {
   const r = (size / 2) - 10;
   const cx = size / 2;
@@ -100,6 +116,15 @@ function ScoreRing({ score, size = 120 }: { score: number | null; size?: number 
 
 // ─── Carte stat ───────────────────────────────────────────────────────────────
 
+/**
+ * Tuile statistique cliquable (ou simple) affichant une valeur principale, un libellé et une sous-info.
+ * @param label - Titre court affiché sous la valeur.
+ * @param value - Valeur principale (nombre ou chaîne).
+ * @param sub - Information secondaire optionnelle.
+ * @param icon - Composant icône Lucide à afficher.
+ * @param accent - Couleur hex de l'icône et de son fond.
+ * @param to - Route interne : si fourni, la tuile devient un lien.
+ */
 function StatCard({
   label,
   value,
@@ -150,6 +175,12 @@ function StatCard({
 
 // ─── Barre de sévérité ────────────────────────────────────────────────────────
 
+/**
+ * Barre de progression horizontale représentant la proportion d'une sévérité par rapport au total.
+ * @param sev - Clé de sévérité (critical | high | medium | low).
+ * @param count - Nombre de vulnérabilités pour cette sévérité.
+ * @param total - Total toutes sévérités confondues (pour calculer le pourcentage).
+ */
 function SeverityBar({ sev, count, total }: { sev: string; count: number; total: number }) {
   const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   const color = SEV_COLOR[sev] ?? 'var(--faint)';
@@ -170,6 +201,10 @@ function SeverityBar({ sev, count, total }: { sev: string; count: number; total:
 
 // ─── Badge grade ──────────────────────────────────────────────────────────────
 
+/**
+ * Badge coloré affichant le grade ANSSI (A–F) avec fond semi-transparent correspondant.
+ * Renvoie un tiret si le grade est null.
+ */
 function GradeBadge({ grade }: { grade: string | null }) {
   if (!grade) return <span style={{ color: 'var(--faint)' }}>—</span>;
   const meta = GRADE_META[grade] ?? GRADE_META.F;
@@ -197,6 +232,7 @@ const STATUS_META: Record<string, { color: string; label: string }> = {
   connecting: { color: '#a855f7', label: 'Connexion' },
 };
 
+/** Badge de statut de session d'audit (completed, running, pending, failed, connecting). */
 function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] ?? { color: 'var(--faint)', label: status };
   return (
@@ -217,6 +253,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Tooltip chart ───────────────────────────────────────────────────────────
 
+/** Infobulle personnalisée pour le graphique Recharts de tendance des vulnérabilités. */
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
@@ -236,6 +273,10 @@ function ChartTooltip({ active, payload, label }: any) {
 
 // ─── Page principale ─────────────────────────────────────────────────────────
 
+/**
+ * Page tableau de bord : charge les données agrégées du backend et compose
+ * la jauge de posture, les stat cards, le graphique de tendance et le tableau des derniers audits.
+ */
 export default function DashboardPage() {
   const authUser = useAuthStore(s => s.user);
   const isAdmin  = authUser?.role === 'admin';

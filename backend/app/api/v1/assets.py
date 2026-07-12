@@ -1,4 +1,8 @@
-"""Assets management endpoints."""
+"""Endpoints de gestion de l'inventaire d'actifs Petrix.
+
+Expose les opérations CRUD sur les actifs (Asset) ainsi que l'endpoint d'auto-enregistrement
+utilisé par l'agent Petrix à l'installation, et un résumé statistique de l'inventaire.
+"""
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
@@ -15,8 +19,11 @@ from app.api.v1.deps import require_permission, get_current_active_user
 router = APIRouter()
 
 
-# Schemas
+# Schémas Pydantic — requêtes et réponses de l'API d'inventaire
+
 class AssetBase(BaseModel):
+    """Champs communs à la création et à la réponse d'un actif."""
+
     name: str
     asset_type: AssetType
     status: AssetStatus = AssetStatus.ACTIVE
@@ -35,10 +42,15 @@ class AssetBase(BaseModel):
 
 
 class AssetCreate(AssetBase):
-    pass
+    """Corps de la requête POST /assets : création d'un nouvel actif."""
 
 
 class AssetUpdate(BaseModel):
+    """Corps de la requête PATCH /assets/{id} : mise à jour partielle d'un actif.
+
+    Tous les champs sont optionnels ; seuls ceux fournis sont modifiés (model_dump exclude_unset).
+    """
+
     name: str | None = None
     asset_type: AssetType | None = None
     status: AssetStatus | None = None
@@ -57,6 +69,14 @@ class AssetUpdate(BaseModel):
 
 
 class AssetResponse(AssetBase):
+    """Représentation complète d'un actif retournée par l'API.
+
+    Attributs supplémentaires par rapport à AssetBase :
+        vulnerability_count: Nombre de vulnérabilités actives associées à cet actif.
+        services: Liste des services ouverts (port, nom, version) issus de l'agent.
+        custom_fields: Métadonnées arbitraires clé-valeur.
+    """
+
     id: str
     services: List[dict] = []
     custom_fields: dict = {}
@@ -69,6 +89,8 @@ class AssetResponse(AssetBase):
 
 
 class AssetListResponse(BaseModel):
+    """Réponse paginée à GET /assets."""
+
     items: List[AssetResponse]
     total: int
     skip: int
@@ -87,10 +109,10 @@ async def list_assets(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_VIEW)),
 ):
-    """List assets with optional filters."""
+    """Liste les actifs de l'inventaire avec filtres optionnels (type, statut, criticité, recherche textuelle)."""
     query = db.query(Asset)
 
-    # Apply filters
+    # Application des filtres de recherche
     if asset_type:
         query = query.filter(Asset.asset_type == asset_type)
     if status:
@@ -147,7 +169,7 @@ async def get_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_VIEW)),
 ):
-    """Get a specific asset."""
+    """Retourne le détail d'un actif par son UUID."""
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(
@@ -186,7 +208,7 @@ async def create_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_CREATE)),
 ):
-    """Create a new asset."""
+    """Crée un nouvel actif dans l'inventaire."""
     asset = Asset(
         name=asset_data.name,
         asset_type=asset_data.asset_type,
@@ -240,7 +262,7 @@ async def update_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_EDIT)),
 ):
-    """Update an asset."""
+    """Met à jour partiellement un actif (seuls les champs fournis sont modifiés)."""
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(
@@ -286,7 +308,7 @@ async def delete_asset(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_DELETE)),
 ):
-    """Delete an asset."""
+    """Supprime définitivement un actif et toutes ses vulnérabilités associées (cascade)."""
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(
@@ -303,6 +325,8 @@ async def delete_asset(
 # ─────────────────────────────────────────────────────────────────────────────
 
 class AgentSelfRegister(BaseModel):
+    """Corps de la requête POST /register-self envoyée par l'agent Petrix à l'installation."""
+
     hostname: str
     ips: List[str]
     os: str = "Unknown"
@@ -311,6 +335,7 @@ class AgentSelfRegister(BaseModel):
 
 
 def _asset_to_response(asset: Asset) -> AssetResponse:
+    """Convertit un objet ORM Asset en schéma de réponse AssetResponse."""
     return AssetResponse(
         id=str(asset.id),
         name=asset.name,
@@ -342,19 +367,22 @@ async def register_self(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Called by the Petrix agent at install/run time — upsert the machine as an asset.
-    Works with any valid JWT (including the 30-day agent token).
+    """Appelé par l'agent Petrix à l'installation — insère ou met à jour la machine dans l'inventaire.
+
+    Effectue un upsert basé sur l'adresse IP principale : si un actif existe déjà avec
+    l'une des IP déclarées, il est mis à jour ; sinon un nouvel actif est créé.
+    Fonctionne avec tout JWT valide, y compris le token agent longue durée (30 jours).
     """
     now = datetime.utcnow()
 
-    # Find existing asset by any of the declared IPs
+    # Recherche d'un actif existant par correspondance sur l'une des IP déclarées
     asset: Optional[Asset] = None
     for ip in body.ips:
         asset = db.query(Asset).filter(Asset.ip_address == ip).first()
         if asset:
             break
 
-    # Determine asset type from OS name
+    # Déduction du type d'actif à partir du nom de l'OS déclaré par l'agent
     os_lower = body.os.lower()
     if "windows" in os_lower:
         guessed_type = AssetType.WORKSTATION
@@ -364,7 +392,7 @@ async def register_self(
         guessed_type = AssetType.SERVER
 
     if asset:
-        # Update existing
+        # Mise à jour de l'actif existant avec les données courantes de l'agent
         if body.hostname:
             asset.name = body.hostname
             asset.hostname = body.hostname
@@ -375,7 +403,7 @@ async def register_self(
         if body.ips:
             asset.ip_address = body.ips[0]
         asset.last_seen = now
-        # Ensure "agent" tag is present
+        # S'assurer que le tag "agent" est présent pour identifier les actifs auto-enregistrés
         tags = list(asset.tags or [])
         if "agent" not in tags:
             tags.append("agent")
@@ -410,24 +438,24 @@ async def get_assets_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_VIEW)),
 ):
-    """Get assets statistics."""
+    """Retourne un résumé statistique de l'inventaire : total, répartition par type, statut et criticité."""
     total = db.query(Asset).count()
 
-    # By type
+    # Répartition par type d'actif
     by_type = {}
     for asset_type in AssetType:
         count = db.query(Asset).filter(Asset.asset_type == asset_type).count()
         if count > 0:
             by_type[asset_type.value] = count
 
-    # By status
+    # Répartition par statut opérationnel
     by_status = {}
     for status in AssetStatus:
         count = db.query(Asset).filter(Asset.status == status).count()
         if count > 0:
             by_status[status.value] = count
 
-    # By criticality
+    # Répartition par criticité
     by_criticality = {}
     for criticality in Severity:
         count = db.query(Asset).filter(Asset.criticality == criticality).count()

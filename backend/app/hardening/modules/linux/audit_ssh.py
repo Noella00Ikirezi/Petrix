@@ -1,4 +1,9 @@
-# Module d'audit : configuration SSH complète — Linux
+"""Module d'audit de la configuration SSH pour Linux.
+
+Vérifie la conformité de sshd_config selon le CIS Benchmark Linux v2.0 § 5.2
+et la Mozilla SSH Modern Policy : directives d'accès, ciphers/MACs/KEX,
+timeout de session et version OpenSSH.
+"""
 # Référentiel : CIS Benchmark Linux v2.0 Section 5.2 + Mozilla SSH Guidelines (Modern policy)
 # https://infosec.mozilla.org/guidelines/openssh
 
@@ -64,6 +69,27 @@ def _get_active_value(ssh, directive):
 
 
 def run_audit(ssh, rules):
+    """Exécute l'audit SSH complet sur la cible Linux.
+
+    Effectue 23 contrôles couvrant les directives d'authentification,
+    les algorithmes cryptographiques (Ciphers, MACs, KEX) et la version
+    OpenSSH. Préfère ``sshd -T`` (configuration compilée) à la lecture
+    directe de sshd_config pour éviter les faux négatifs liés aux
+    directives commentées.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles ; clés reconnues —
+               ``root_login`` (défaut "no"), ``password_auth`` (défaut "no"),
+               ``permit_empty_passwords`` (défaut "no"),
+               ``x11_forwarding`` (défaut "no"), ``max_auth_tries`` (défaut 4).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — non-conformités avec check_id, severity, remediation.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

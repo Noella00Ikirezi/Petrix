@@ -1,4 +1,9 @@
-# Module d'audit : paramètres noyau Linux
+"""Module d'audit des paramètres noyau Linux (sysctl).
+
+Contrôle les paramètres de durcissement définis dans ANSSI-BP-028 v2.0 § 5.2 :
+ASLR (R8), restrictions noyau/BPF (R9), Yama ptrace (R10), IPv6 (R11),
+pile réseau IPv4 (R12), système de fichiers (R13).
+"""
 # Référentiel : ANSSI-BP-028 v2.0 — Sections 5.2 (configuration dynamique)
 # Checks : R8 (mémoire), R9 (modules), R10 (Yama), R11 (IPv6), R12 (IPv4), R13 (FS), R14 (processus)
 
@@ -134,6 +139,23 @@ def _check_ipv6_disabled(ssh):
 
 
 def run_audit(ssh, rules):
+    """Exécute l'audit des paramètres sysctl de durcissement noyau.
+
+    Lit chaque paramètre via ``sysctl -n`` et le compare à la valeur attendue.
+    Complète avec la vérification du verrouillage des modules (R9) et le
+    statut IPv6 (R11, informatif uniquement).
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles (non utilisé pour ce module — les valeurs
+               attendues sont définies statiquement dans ``SYSCTL_CHECKS``).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — paramètres non conformes ou absents.
+            passed   (list[dict]) — paramètres conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

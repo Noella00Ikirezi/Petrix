@@ -1,4 +1,6 @@
-"""System endpoints - License, updates, health checks."""
+"""Endpoints système : health check, version applicative, gestion de licence et statistiques d'utilisation.
+Les endpoints /health et /version sont publics ; tous les autres requièrent la permission SYSTEM_SETTINGS (ADMIN).
+"""
 from datetime import datetime
 from typing import Optional
 
@@ -26,14 +28,14 @@ UPDATE_CHECK_URL = "https://api.petrix.io/v1/updates"  # Your update server
 
 
 class VersionInfo(BaseModel):
-    """Application version information."""
+    """Informations de version de l'application (version, date de build, Python)."""
     version: str
     build_date: str
     python_version: str
 
 
 class UpdateInfo(BaseModel):
-    """Update availability information."""
+    """Résultat de la vérification de mise à jour : version disponible et notes de version."""
     current_version: str
     latest_version: str
     update_available: bool
@@ -43,12 +45,12 @@ class UpdateInfo(BaseModel):
 
 
 class LicenseActivateRequest(BaseModel):
-    """License activation request."""
+    """Payload d'activation d'une licence Petrix par clé."""
     license_key: str
 
 
 class LicenseResponse(BaseModel):
-    """License information response."""
+    """Informations complètes sur la licence active : tier, validité et fonctionnalités incluses."""
     license_id: str
     organization: str
     tier: str
@@ -60,7 +62,7 @@ class LicenseResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Health check response."""
+    """Réponse du health check : état de la base de données, Redis et de la licence."""
     status: str
     version: str
     database: str
@@ -70,7 +72,7 @@ class HealthResponse(BaseModel):
 
 
 class SystemStatsResponse(BaseModel):
-    """System statistics response."""
+    """Statistiques d'utilisation système comparées aux limites de la licence active."""
     total_assets: int
     total_users: int
     scans_this_month: int
@@ -80,10 +82,7 @@ class SystemStatsResponse(BaseModel):
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """
-    Health check endpoint for monitoring.
-    No authentication required.
-    """
+    """Vérifie la disponibilité de la base de données, de Redis et de la licence — endpoint public, sans authentification."""
     from app.infrastructure.database import SessionLocal
     from sqlalchemy import text
     import redis
@@ -122,7 +121,7 @@ async def health_check():
 
 @router.get("/version", response_model=VersionInfo)
 async def get_version():
-    """Get current application version."""
+    """Retourne la version courante de l'application — endpoint public, sans authentification."""
     import sys
     return VersionInfo(
         version=APP_VERSION,
@@ -135,10 +134,7 @@ async def get_version():
 async def check_updates(
     current_user: User = Depends(require_permission(Permission.SYSTEM_SETTINGS)),
 ):
-    """
-    Check for available updates.
-    Contacts the update server to check for new versions.
-    """
+    """Interroge le serveur de mise à jour Petrix pour détecter une nouvelle version disponible — réservé ADMIN."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
@@ -174,7 +170,7 @@ async def check_updates(
 async def get_license(
     current_user: User = Depends(require_permission(Permission.SYSTEM_SETTINGS)),
 ):
-    """Get current license information."""
+    """Retourne les informations de la licence active (tier, expiration, fonctionnalités) — réservé ADMIN."""
     license_info = get_current_license()
 
     return LicenseResponse(
@@ -194,10 +190,7 @@ async def activate_license(
     request: LicenseActivateRequest,
     current_user: User = Depends(require_permission(Permission.SYSTEM_SETTINGS)),
 ):
-    """
-    Activate a new license key.
-    Validates the license and applies it if valid.
-    """
+    """Active une nouvelle clé de licence après validation cryptographique — réservé ADMIN."""
     license_info = set_license(request.license_key)
 
     if license_info is None:
@@ -228,7 +221,7 @@ async def activate_license(
 
 @router.get("/license/tiers")
 async def get_license_tiers():
-    """Get available license tiers and their features (public info)."""
+    """Retourne les tiers de licence disponibles et leurs fonctionnalités incluses — endpoint public."""
     tiers = {}
     for tier in LicenseTier:
         features = TIER_FEATURES[tier]
@@ -243,7 +236,7 @@ async def get_license_tiers():
 async def get_system_stats(
     current_user: User = Depends(require_permission(Permission.SYSTEM_SETTINGS)),
 ):
-    """Get system statistics and license limit usage."""
+    """Retourne les compteurs d'utilisation (assets, utilisateurs, scans) comparés aux limites de la licence — réservé ADMIN."""
     from app.infrastructure.database import SessionLocal
     from app.infrastructure.database.models import Asset, User as UserModel, Scan
 
@@ -294,12 +287,7 @@ async def generate_license(
     valid_days: int = 365,
     current_user: User = Depends(require_permission(Permission.SYSTEM_SETTINGS)),
 ):
-    """
-    Generate a new license key (admin only).
-
-    In production, this endpoint would be on a separate license server,
-    not on the client installation. Included here for demo purposes.
-    """
+    """Génère une nouvelle clé de licence (à déplacer sur un serveur dédié en production) — réservé ADMIN."""
     license_key = LicenseManager.generate_license(
         organization=organization,
         tier=tier,

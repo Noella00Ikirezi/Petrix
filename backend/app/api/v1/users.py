@@ -1,4 +1,6 @@
-"""Users management endpoints with comprehensive role and permission management."""
+"""Endpoints de gestion des utilisateurs : CRUD, attribution des rôles, permissions et mots de passe.
+Protégé par les permissions USER_* ; la promotion vers le rôle ADMIN est réservée exclusivement aux ADMIN.
+"""
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
@@ -22,7 +24,7 @@ router = APIRouter()
 # ===================
 
 class PermissionInfo(BaseModel):
-    """Permission details."""
+    """Détails d'une permission RBAC : nom technique, valeur, catégorie et description."""
     name: str
     value: str
     category: str
@@ -30,7 +32,7 @@ class PermissionInfo(BaseModel):
 
 
 class RoleInfo(BaseModel):
-    """Role with its permissions."""
+    """Rôle avec ses permissions associées et le nombre d'utilisateurs qui le possèdent."""
     name: str
     value: str
     description: str
@@ -39,7 +41,7 @@ class RoleInfo(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """User response schema."""
+    """Représentation complète d'un utilisateur retournée par l'API, incluant ses permissions effectives."""
     id: str
     email: str
     first_name: str | None
@@ -57,7 +59,7 @@ class UserResponse(BaseModel):
 
 
 class UserCreate(BaseModel):
-    """Create user schema — admin fournit email + rôle, mot de passe généré automatiquement."""
+    """Corps de la requête POST /users : création d'un compte par un admin, rôle requis, mot de passe temporaire auto-généré."""
     email: EmailStr
     role: UserRole = UserRole.VIEWER
     first_name: str | None = None
@@ -65,7 +67,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    """Update user schema."""
+    """Payload de mise à jour d'un utilisateur par un ADMIN (prénom, nom, rôle, statut actif)."""
     first_name: str | None = None
     last_name: str | None = None
     role: UserRole | None = None
@@ -73,87 +75,87 @@ class UserUpdate(BaseModel):
 
 
 class PasswordChange(BaseModel):
-    """Password change schema."""
+    """Payload de changement de mot de passe à l'initiative de l'utilisateur (ancien + nouveau)."""
     current_password: str
     new_password: str = Field(..., min_length=12, description="Password must be at least 12 characters")
 
 
 class PasswordReset(BaseModel):
-    """Admin password reset schema."""
+    """Payload de réinitialisation de mot de passe par un ADMIN."""
     new_password: str = Field(..., min_length=12, description="Password must be at least 12 characters")
 
 
 class BulkRoleUpdate(BaseModel):
-    """Bulk role update schema."""
+    """Payload de mise à jour en lot du rôle pour une liste d'utilisateurs."""
     user_ids: List[UUID]
     role: UserRole
 
 
 class UserStats(BaseModel):
-    """User statistics."""
+    """Statistiques des comptes utilisateurs : total, actifs, inactifs et répartition par rôle."""
     total_users: int
     active_users: int
     inactive_users: int
     users_by_role: dict
 
 
-# Permission descriptions for documentation
+# Descriptions des permissions exposées dans la réponse de l'endpoint GET /users/permissions
 PERMISSION_DESCRIPTIONS = {
-    # Assets
-    "asset:view": "View assets and their details",
-    "asset:create": "Create new assets",
-    "asset:edit": "Edit existing assets",
-    "asset:delete": "Delete assets",
-    "asset:export": "Export asset data",
-    # Vulnerabilities
-    "vuln:view": "View vulnerabilities",
-    "vuln:create": "Create vulnerability entries",
-    "vuln:edit": "Edit vulnerability details",
-    "vuln:resolve": "Mark vulnerabilities as resolved",
-    "vuln:delete": "Delete vulnerabilities",
-    "vuln:export": "Export vulnerability data",
+    # Actifs
+    "asset:view": "Consulter les actifs et leurs détails",
+    "asset:create": "Créer de nouveaux actifs",
+    "asset:edit": "Modifier les actifs existants",
+    "asset:delete": "Supprimer des actifs",
+    "asset:export": "Exporter les données d'inventaire",
+    # Vulnérabilités
+    "vuln:view": "Consulter les vulnérabilités",
+    "vuln:create": "Créer des entrées de vulnérabilité",
+    "vuln:edit": "Modifier les détails d'une vulnérabilité",
+    "vuln:resolve": "Marquer des vulnérabilités comme résolues",
+    "vuln:delete": "Supprimer des vulnérabilités",
+    "vuln:export": "Exporter les données de vulnérabilités",
     # Scans
-    "scan:view": "View scan results",
-    "scan:create": "Create new scans",
-    "scan:execute": "Execute scans",
-    "scan:configure": "Configure scan settings",
-    "scan:delete": "Delete scans",
-    # Compliance
-    "compliance:view": "View compliance status",
-    "compliance:assess": "Perform compliance assessments",
-    "compliance:edit": "Edit compliance data",
-    "compliance:export": "Export compliance reports",
-    # Suppliers
-    "supplier:view": "View supplier information",
-    "supplier:create": "Add new suppliers",
-    "supplier:edit": "Edit supplier details",
-    "supplier:delete": "Remove suppliers",
-    "supplier:assess": "Assess supplier risk",
-    # Reports
-    "report:view": "View reports",
-    "report:create": "Generate reports",
-    "report:export": "Export reports",
-    # Users
-    "user:view": "View user list and details",
-    "user:create": "Create new users",
-    "user:edit": "Edit user information",
-    "user:delete": "Delete users",
-    "user:manage_roles": "Manage user roles and permissions",
-    # Settings
-    "settings:view": "View system settings",
-    "settings:edit": "Modify system settings",
+    "scan:view": "Consulter les résultats de scans",
+    "scan:create": "Créer de nouveaux scans",
+    "scan:execute": "Démarrer et annuler des scans",
+    "scan:configure": "Configurer les paramètres de scan",
+    "scan:delete": "Supprimer des scans",
+    # Conformité
+    "compliance:view": "Consulter l'état de conformité",
+    "compliance:assess": "Réaliser des évaluations de conformité",
+    "compliance:edit": "Modifier les données de conformité",
+    "compliance:export": "Exporter les rapports de conformité",
+    # Fournisseurs
+    "supplier:view": "Consulter les informations fournisseurs",
+    "supplier:create": "Ajouter de nouveaux fournisseurs",
+    "supplier:edit": "Modifier les détails d'un fournisseur",
+    "supplier:delete": "Supprimer des fournisseurs",
+    "supplier:assess": "Évaluer le risque fournisseur",
+    # Rapports
+    "report:view": "Consulter les rapports",
+    "report:create": "Générer des rapports",
+    "report:export": "Exporter des rapports",
+    # Utilisateurs
+    "user:view": "Consulter la liste et le détail des utilisateurs",
+    "user:create": "Créer de nouveaux comptes utilisateurs",
+    "user:edit": "Modifier les informations d'un utilisateur",
+    "user:delete": "Supprimer des comptes utilisateurs",
+    "user:manage_roles": "Gérer les rôles et permissions des utilisateurs",
+    # Paramètres
+    "settings:view": "Consulter les paramètres système",
+    "settings:edit": "Modifier les paramètres système",
     # Audit
-    "audit_log:view": "View audit logs",
-    # System
-    "system:admin": "Full system administration",
-    "system:settings": "Manage system-wide settings",
+    "audit_log:view": "Consulter les journaux d'audit",
+    # Système
+    "system:admin": "Administration complète du système",
+    "system:settings": "Gérer les paramètres système globaux",
 }
 
 ROLE_DESCRIPTIONS = {
-    UserRole.VIEWER: "Read-only access to view assets, vulnerabilities, scans, and reports",
-    UserRole.ANALYST: "Can create and edit assets, vulnerabilities, execute scans, and generate reports",
-    UserRole.AUDITOR: "Full audit capabilities including compliance assessment and audit log access",
-    UserRole.ADMIN: "Full system access with user management and system administration",
+    UserRole.VIEWER:  "Accès en lecture seule aux actifs, vulnérabilités, scans et rapports",
+    UserRole.ANALYST: "Création et modification d'actifs et de vulnérabilités, exécution de scans et génération de rapports",
+    UserRole.AUDITOR: "Capacités d'audit complètes incluant l'évaluation de conformité et l'accès aux journaux d'audit",
+    UserRole.ADMIN:   "Accès total au système avec gestion des utilisateurs et administration globale",
 }
 
 
@@ -162,12 +164,12 @@ ROLE_DESCRIPTIONS = {
 # ===================
 
 def get_permission_category(permission_value: str) -> str:
-    """Extract category from permission value."""
+    """Extrait la catégorie (préfixe avant ':') d'une valeur de permission et la met en forme titre."""
     return permission_value.split(":")[0].replace("_", " ").title()
 
 
 def user_to_response(user: User) -> UserResponse:
-    """Convert User model to UserResponse with permissions."""
+    """Convertit un objet ORM User en UserResponse en incluant ses permissions effectives selon son rôle."""
     permissions = [p.value for p in get_role_permissions(user.role)]
     return UserResponse(
         id=str(user.id),
@@ -193,7 +195,7 @@ async def list_roles(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """List all available roles with their permissions and user counts."""
+    """Liste tous les rôles disponibles avec leurs permissions associées et le nombre d'utilisateurs — accessible à tout utilisateur authentifié."""
     roles = []
     for role in UserRole:
         user_count = db.query(User).filter(User.role == role).count()
@@ -214,7 +216,7 @@ async def get_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get details of a specific role."""
+    """Retourne le détail d'un rôle par sa valeur (viewer/analyst/auditor/admin) — accessible à tout utilisateur authentifié."""
     try:
         role = UserRole(role_name.lower())
     except ValueError:
@@ -239,7 +241,7 @@ async def get_role(
 async def list_permissions(
     current_user: User = Depends(get_current_active_user),
 ):
-    """List all available permissions with descriptions."""
+    """Liste toutes les permissions RBAC disponibles avec leur catégorie et description — accessible à tout utilisateur authentifié."""
     permissions = []
     for perm in Permission:
         permissions.append(PermissionInfo(
@@ -255,7 +257,7 @@ async def list_permissions(
 async def get_my_permissions(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get current user's permissions."""
+    """Retourne la liste des permissions effectives de l'utilisateur courant selon son rôle."""
     return [p.value for p in get_role_permissions(current_user.role)]
 
 
@@ -264,7 +266,7 @@ async def check_permission(
     permission: str,
     current_user: User = Depends(get_current_active_user),
 ):
-    """Check if current user has a specific permission."""
+    """Vérifie si l'utilisateur courant possède une permission spécifique et retourne le résultat booléen."""
     try:
         perm = Permission(permission)
     except ValueError:
@@ -289,7 +291,7 @@ async def get_user_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_VIEW)),
 ):
-    """Get user statistics (requires USER_VIEW permission)."""
+    """Retourne les statistiques des comptes utilisateurs — réservé aux rôles possédant USER_VIEW."""
     total = db.query(User).count()
     active = db.query(User).filter(User.is_active == True).count()
     inactive = db.query(User).filter(User.is_active == False).count()
@@ -321,10 +323,10 @@ async def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_VIEW)),
 ):
-    """List all users with optional filtering (requires USER_VIEW permission)."""
+    """Liste tous les utilisateurs avec filtres optionnels (recherche, rôle, statut actif) — réservé USER_VIEW."""
     query = db.query(User)
 
-    # Apply filters
+    # Application des filtres de recherche
     if search:
         search_term = f"%{search}%"
         query = query.filter(
@@ -349,7 +351,7 @@ async def list_users(
 async def get_current_user_info(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get current user's information."""
+    """Retourne le profil complet de l'utilisateur connecté avec ses permissions effectives."""
     return user_to_response(current_user)
 
 
@@ -359,7 +361,7 @@ async def update_my_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Update own profile — first name and last name only, role not changeable."""
+    """Met à jour le prénom et le nom de l'utilisateur connecté — le rôle ne peut pas être modifié ici."""
     if user_data.first_name is not None:
         current_user.first_name = user_data.first_name
     if user_data.last_name is not None:
@@ -370,6 +372,8 @@ async def update_my_profile(
 
 
 class AvatarUpdate(BaseModel):
+    """Corps de la requête PUT /users/me/avatar : data URL base64 de la nouvelle image de profil (ou None pour supprimer)."""
+
     avatar_url: str | None = None
 
 
@@ -379,7 +383,7 @@ async def update_my_avatar(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Upload or delete own avatar — accepts a base64 data URL (max ~200 KB)."""
+    """Met à jour ou supprime l'avatar de l'utilisateur connecté — accepte une data URL base64 (max ~200 Ko)."""
     if body.avatar_url is not None:
         if len(body.avatar_url) > 300_000:
             raise HTTPException(status_code=413, detail="Image trop grande (max 200 KB)")
@@ -397,7 +401,7 @@ async def get_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_VIEW)),
 ):
-    """Get a specific user."""
+    """Retourne le profil d'un utilisateur par son UUID — réservé USER_VIEW."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -414,7 +418,7 @@ async def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_CREATE)),
 ):
-    """Invite a user: admin provides email + role, system generates password and sends invitation email."""
+    """Invite un utilisateur : génère un mot de passe temporaire, crée le compte et envoie un e-mail d'invitation — réservé USER_CREATE (ADMIN pour créer un ADMIN)."""
     import secrets
     import string
     from app.workers.email_tasks import send_invitation_email_task
@@ -475,7 +479,7 @@ async def update_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_EDIT)),
 ):
-    """Update a user (requires USER_EDIT permission)."""
+    """Met à jour un utilisateur (prénom, nom, rôle, statut actif) avec protection du dernier ADMIN — réservé USER_EDIT."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -483,14 +487,14 @@ async def update_user(
             detail="User not found",
         )
 
-    # Prevent non-admins from promoting to admin
+    # Interdire la promotion au rôle ADMIN par un non-admin
     if user_data.role == UserRole.ADMIN and current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can assign admin role",
         )
 
-    # Prevent demoting the last admin
+    # Protéger le dernier compte ADMIN contre toute rétrogradation
     if user.role == UserRole.ADMIN and user_data.role and user_data.role != UserRole.ADMIN:
         admin_count = db.query(User).filter(
             User.role == UserRole.ADMIN,
@@ -502,7 +506,7 @@ async def update_user(
                 detail="Cannot demote the last admin user",
             )
 
-    # Prevent self-deactivation for admins
+    # Interdire l'auto-désactivation d'un compte admin
     if user.id == current_user.id and user_data.is_active == False:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -526,7 +530,7 @@ async def update_user_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_MANAGE_ROLES)),
 ):
-    """Update a user's role (requires USER_MANAGE_ROLES permission)."""
+    """Modifie le rôle d'un utilisateur avec protection du dernier ADMIN et journalisation — réservé USER_MANAGE_ROLES."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -534,14 +538,14 @@ async def update_user_role(
             detail="User not found",
         )
 
-    # Prevent non-admins from assigning admin role
+    # Interdire l'attribution du rôle ADMIN par un non-admin
     if role == UserRole.ADMIN and current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can assign admin role",
         )
 
-    # Prevent demoting the last admin
+    # Protéger le dernier compte ADMIN contre toute rétrogradation
     if user.role == UserRole.ADMIN and role != UserRole.ADMIN:
         admin_count = db.query(User).filter(
             User.role == UserRole.ADMIN,
@@ -553,7 +557,7 @@ async def update_user_role(
                 detail="Cannot demote the last admin user",
             )
 
-    # Prevent self-demotion from admin
+    # Interdire l'auto-rétrogradation depuis le rôle ADMIN
     if user.id == current_user.id and current_user.role == UserRole.ADMIN and role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -580,8 +584,8 @@ async def bulk_update_roles(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_MANAGE_ROLES)),
 ):
-    """Bulk update user roles (requires USER_MANAGE_ROLES permission)."""
-    # Prevent non-admins from assigning admin role
+    """Met à jour en lot le rôle d'une liste d'utilisateurs en ignorant les cas protégés (dernier ADMIN, auto-rétrogradation) — réservé USER_MANAGE_ROLES."""
+    # Interdire l'attribution en lot du rôle ADMIN par un non-admin
     if data.role == UserRole.ADMIN and current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -592,7 +596,7 @@ async def bulk_update_roles(
     for user_id in data.user_ids:
         user = db.query(User).filter(User.id == user_id).first()
         if user:
-            # Skip if trying to demote last admin
+            # Ignorer si la rétrogradation toucherait le dernier admin
             if user.role == UserRole.ADMIN and data.role != UserRole.ADMIN:
                 admin_count = db.query(User).filter(
                     User.role == UserRole.ADMIN,
@@ -601,7 +605,7 @@ async def bulk_update_roles(
                 if admin_count <= 1:
                     continue
 
-            # Skip self-demotion
+            # Ignorer l'auto-rétrogradation
             if user.id == current_user.id and current_user.role == UserRole.ADMIN and data.role != UserRole.ADMIN:
                 continue
 
@@ -618,7 +622,7 @@ async def activate_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_EDIT)),
 ):
-    """Activate a user account."""
+    """Réactive un compte utilisateur désactivé et remet à zéro son compteur d'échecs de connexion — réservé USER_EDIT."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -647,7 +651,7 @@ async def deactivate_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_EDIT)),
 ):
-    """Deactivate a user account."""
+    """Désactive un compte utilisateur avec protection du dernier ADMIN et de l'auto-désactivation — réservé USER_EDIT."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -655,14 +659,14 @@ async def deactivate_user(
             detail="User not found",
         )
 
-    # Prevent self-deactivation
+    # Interdire l'auto-désactivation
     if user.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot deactivate your own account",
         )
 
-    # Prevent deactivating the last admin
+    # Protéger le dernier compte ADMIN actif contre la désactivation
     if user.role == UserRole.ADMIN:
         admin_count = db.query(User).filter(
             User.role == UserRole.ADMIN,
@@ -694,7 +698,7 @@ async def reset_user_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_MANAGE_ROLES)),
 ):
-    """Reset a user's password (admin only)."""
+    """Réinitialise le mot de passe d'un utilisateur après validation de la complexité — réservé exclusivement aux ADMIN."""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -708,7 +712,7 @@ async def reset_user_password(
             detail="User not found",
         )
 
-    # Validate password strength
+    # Vérification de la complexité : majuscule, minuscule, chiffre et caractère spécial requis
     password = data.new_password
     has_upper = any(c.isupper() for c in password)
     has_lower = any(c.islower() for c in password)
@@ -741,15 +745,15 @@ async def change_my_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Change current user's password."""
-    # Verify current password
+    """Modifie le mot de passe de l'utilisateur connecté après vérification de l'ancien mot de passe et de la complexité du nouveau."""
+    # Vérification de l'ancien mot de passe avant la mise à jour
     if not verify_password(data.current_password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
         )
 
-    # Validate new password strength
+    # Vérification de la complexité du nouveau mot de passe
     password = data.new_password
     has_upper = any(c.isupper() for c in password)
     has_lower = any(c.islower() for c in password)
@@ -779,7 +783,7 @@ async def delete_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.USER_DELETE)),
 ):
-    """Delete a user (requires USER_DELETE permission)."""
+    """Supprime définitivement un compte utilisateur avec protection du dernier ADMIN et de l'auto-suppression — réservé USER_DELETE."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -787,14 +791,14 @@ async def delete_user(
             detail="User not found",
         )
 
-    # Prevent self-deletion
+    # Interdire l'auto-suppression du compte courant
     if user.id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete your own account",
         )
 
-    # Prevent deleting the last admin
+    # Protéger le dernier compte ADMIN actif contre la suppression
     if user.role == UserRole.ADMIN:
         admin_count = db.query(User).filter(
             User.role == UserRole.ADMIN,

@@ -1,4 +1,9 @@
-# Module d'audit : vérifie l'état du pare-feu Linux (ufw, iptables, firewalld, nftables)
+"""Module d'audit du pare-feu Linux (ufw, iptables, firewalld, nftables).
+
+Détecte automatiquement le gestionnaire de pare-feu disponible sur la cible
+et vérifie son état d'activation et sa politique par défaut selon le
+CIS Benchmark Linux v2.0 § 3.5.
+"""
 # Référentiel : CIS Benchmark Linux v2.0 — Section 3.5 (Firewall Configuration)
 
 # Services qui doivent toujours être autorisés (ports entrants légitimes)
@@ -117,6 +122,21 @@ def _audit_firewalld(ssh, rules):
 
 
 def run_audit(ssh, rules):
+    """Détecte le pare-feu actif et audite son état et sa politique par défaut.
+
+    Tente ufw puis firewalld en priorité ; si aucun des deux n'est trouvé,
+    revient sur iptables. Vérifie nftables en complément si présent.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles (non utilisé pour ce module).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — pare-feu inactif ou politique trop permissive.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
     firewall_found = False

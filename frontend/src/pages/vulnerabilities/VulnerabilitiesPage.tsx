@@ -1,3 +1,8 @@
+/**
+ * Page de gestion des vulnérabilités et de veille CERT-FR.
+ * Deux onglets principaux : liste des CVE locales avec filtres sévérité/statut,
+ * et flux CERT-FR en temps réel (alertes, avis, IOC) avec corrélations automatiques.
+ */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -58,6 +63,13 @@ function isRecent(d: string, days = 60) {
 
 // ─── Fiche Drawer ──────────────────────────────────────────────────────────────
 
+/**
+ * Panneau latéral (drawer) affichant le détail d'une fiche CERT-FR :
+ * bannière colorée par sévérité, risques, systèmes affectés, résumé, solution, CVE et références.
+ * @param certId - Identifiant CERT-FR (ex. CERTFR-2025-ALE-001).
+ * @param feedType - Type de flux (alerte | avis | dur | ioc | actualite).
+ * @param onClose - Callback de fermeture du drawer.
+ */
 function FicheDrawer({ certId, feedType, onClose }: { certId: string; feedType: string; onClose: () => void }) {
   const { data: fiche, isLoading, isError } = useQuery<Fiche>({
     queryKey: ['fiche', certId],
@@ -236,6 +248,10 @@ function FicheDrawer({ certId, feedType, onClose }: { certId: string; feedType: 
   );
 }
 
+/**
+ * Section encadrée de la fiche CERT-FR avec titre et icône colorée.
+ * Utilisée pour compartimenter risques, systèmes affectés, solution et références.
+ */
 function FicheSection({ icon: Icon, title, iconClass, children }: {
   icon: React.ElementType; title: string; iconClass: string; children: React.ReactNode;
 }) {
@@ -262,6 +278,10 @@ type FeedType = typeof FEED_TABS[number]['id'];
 
 // ─── CERT-FR Feed ─────────────────────────────────────────────────────────────
 
+/**
+ * Onglet flux CERT-FR : agrège alertes, avis, IOC et actualités via feedApi.certFrMulti,
+ * permet le filtrage par type de publication et l'ouverture de la fiche détaillée dans un drawer.
+ */
 function CertFrFeed() {
   const [feedType, setFeedType]           = useState<FeedType>('alerte');
   const [severityFilter, setSeverityFilter] = useState('');
@@ -496,6 +516,10 @@ const VULN_SEV: Record<string, typeof SEV[keyof typeof SEV]> = {
   info:     { border: 'border-l-gray-300', bg: '', badge: 'bg-gray-400 text-white', icon: 'text-gray-400', label: 'Info', bannerBg: 'from-gray-600 to-gray-800' },
 };
 
+/**
+ * Ligne expandable représentant une vulnérabilité locale : sévérité, statut, CVE IDs,
+ * score CVSS, description complète et date de découverte.
+ */
 function VulnRow({ vuln }: { vuln: Vuln }) {
   const [exp, setExp] = useState(false);
   const cfg = VULN_SEV[vuln.severity] ?? VULN_SEV.info;
@@ -546,6 +570,10 @@ const CERT_SEV_COLOR: Record<string, string> = {
   LOW:      '#3b82f6',
 };
 
+/**
+ * Onglet de corrélations CVE : relie les CVE locales aux alertes CERT-FR correspondantes
+ * pour prioriser les remédiations selon l'actualité de la menace.
+ */
 function CorrelationsTab() {
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['vuln-correlations'],
@@ -676,6 +704,11 @@ function CorrelationsTab() {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+/**
+ * Page principale des vulnérabilités.
+ * Trois onglets : liste locale (CVE inventoriées), flux CERT-FR temps réel, corrélations CVE.
+ * Inclut un formulaire de création manuelle de vulnérabilité et des filtres par sévérité/statut.
+ */
 export default function VulnerabilitiesPage() {
   const [activeTab, setActiveTab] = useState<'feed' | 'internal' | 'correlations'>('feed');
   const [search, setSearch]       = useState('');

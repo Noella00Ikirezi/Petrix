@@ -1,4 +1,10 @@
-"""Celery tasks for HCO Hardening module."""
+"""Tâches Celery pour le module HCO Hardening.
+
+Expose la tâche ``run_hardening_session`` qui orchestre un audit complet
+sur une cible distante : chargement de la session depuis la base de données,
+connexion SSH, exécution des modules d'audit, persistance des findings et
+mise à jour du score/grade dans la session.
+"""
 from datetime import datetime
 
 from app.workers.celery_app import celery_app
@@ -13,20 +19,34 @@ from loguru import logger
 
 
 def _get_db():
+    """Retourne une session SQLAlchemy — à fermer explicitement dans un bloc finally."""
     return SessionLocal()
 
 
 @celery_app.task(bind=True, name="hardening.run_session")
 def run_hardening_session(self, session_id: str) -> dict:
-    """
-    Run a full HCO hardening audit on a target via SSH.
+    """Lance un audit HCO complet sur la cible associée à la session.
 
-    Phases:
-    1. Load session + target from DB
-    2. CONNECTING: establish SSH
-    3. AUDITING: run each requested module
-    4. Persist HardeningFinding records
-    5. COMPLETED: update session with score/grade
+    Tâche Celery longue (jusqu'à 30 min par timeout Celery). Communique la
+    progression via ``self.update_state`` et des commits intermédiaires
+    en base pour permettre un suivi temps réel depuis l'API.
+
+    Phases d'exécution :
+        1. Chargement de la session et de la cible depuis la base.
+        2. CONNECTING — ouverture de la connexion SSH.
+        3. AUDITING — exécution module par module avec callback de progression.
+        4. Persistance des ``HardeningFinding`` en base.
+        5. COMPLETED — mise à jour du score, grade et statistiques de la session.
+
+    Args:
+        self: Référence Celery à la tâche courante (bind=True).
+        session_id: UUID de la ``HardeningSession`` à exécuter.
+
+    Returns:
+        dict avec clés :
+            ``session_id``, ``status``, ``score``, ``grade``,
+            ``total_findings`` en cas de succès.
+            ``error`` (str) en cas d'échec.
     """
     db = _get_db()
     try:

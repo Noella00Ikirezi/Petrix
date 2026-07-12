@@ -1,8 +1,16 @@
+/**
+ * Page de paramètres utilisateur.
+ * Quatre onglets : Profil (nom, avatar), Sécurité (changement de mot de passe),
+ * Notifications (préférences d'alertes) et Apparence (thème dark/light).
+ */
 import { useState, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { User, Shield, Bell, Palette, Camera, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+/**
+ * Page de paramètres : gère la navigation par onglets et rend le panneau de paramètres actif.
+ */
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('profile');
 
@@ -51,6 +59,12 @@ export default function SettingsPage() {
   );
 }
 
+/**
+ * Redimensionne une image uploadée en un carré centré encodé en Data URL JPEG.
+ * @param file - Fichier image sélectionné par l'utilisateur.
+ * @param size - Dimension cible en pixels (défaut : 128×128).
+ * @returns Promise résolvant vers une Data URL JPEG de l'image recadrée.
+ */
 function resizeImageToDataUrl(file: File, size = 128): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -72,6 +86,10 @@ function resizeImageToDataUrl(file: File, size = 128): Promise<string> {
   });
 }
 
+/**
+ * Onglet Profil : formulaire de modification du prénom/nom et gestion de la photo de profil
+ * (upload, recadrage canvas 128×128 et suppression via PUT /users/me/avatar).
+ */
 function ProfileSettings() {
   const { user, token, updateUser } = useAuthStore();
   const [formData, setFormData] = useState({
@@ -105,6 +123,10 @@ function ProfileSettings() {
     }
   };
 
+  /**
+   * Traite le fichier image sélectionné : valide le type, redimensionne via Canvas
+   * et envoie la Data URL au backend via PUT /users/me/avatar.
+   */
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -263,6 +285,10 @@ function ProfileSettings() {
   );
 }
 
+/**
+ * Onglet Sécurité : formulaire de changement de mot de passe (mot de passe actuel + nouveau confirmé)
+ * via PATCH /users/me/password.
+ */
 function SecuritySettings() {
   const { token } = useAuthStore();
   const [form, setForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
@@ -351,6 +377,7 @@ function SecuritySettings() {
   );
 }
 
+/** Onglet Notifications : préférences d'alertes email (scan terminé, CVE critique, rapport hebdomadaire). */
 function NotificationSettings() {
   const [settings, setSettings] = useState({
     email_scan_complete: true,
@@ -370,6 +397,7 @@ function NotificationSettings() {
   );
 }
 
+/** Onglet Apparence : bascule dark/light mode persistée dans localStorage et appliquée via la classe `dark` sur `<html>`. */
 function AppearanceSettings() {
   const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'));
 
@@ -389,6 +417,13 @@ function AppearanceSettings() {
   );
 }
 
+/**
+ * Composant toggle générique avec libellé et description.
+ * @param label - Titre court affiché à gauche.
+ * @param description - Explication de l'option.
+ * @param checked - État courant du toggle.
+ * @param onChange - Callback déclenché à chaque bascule.
+ */
 function Toggle({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: () => void }) {
   return (
     <div className="flex items-center justify-between">

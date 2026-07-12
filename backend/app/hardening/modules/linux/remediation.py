@@ -1,4 +1,9 @@
-# Module de remédiation : applique ou prévisualise les correctifs identifiés par les modules d'audit
+"""Module de remédiation automatique pour les findings HCO Linux.
+
+Applique ou prévisualise (mode dry-run par défaut) les correctifs identifiés
+par les modules d'audit SSH, noyau et pare-feu. Chaque correction crée une
+sauvegarde horodatée du fichier modifié avant toute opération.
+"""
 # Mode DRY-RUN par défaut — ne modifie rien sans confirmation explicite
 
 SSH_CONFIG = "/etc/ssh/sshd_config"

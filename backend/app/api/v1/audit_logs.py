@@ -1,4 +1,7 @@
-"""Audit logs endpoints for admin viewing."""
+"""Endpoints de consultation des journaux d'audit de la plateforme Petrix.
+Lecture seule avec pagination et filtres par action, type de ressource et utilisateur.
+Réservé aux rôles disposant de la permission AUDIT_LOG_VIEW (AUDITOR et ADMIN).
+"""
 from typing import List, Optional
 from datetime import datetime
 
@@ -16,6 +19,8 @@ router = APIRouter()
 
 
 class AuditLogResponse(BaseModel):
+    """Entrée de journal d'audit sérialisée, avec l'adresse e-mail de l'acteur résolue depuis la base."""
+
     id: str
     user_id: str | None
     user_email: str | None = None
@@ -32,6 +37,8 @@ class AuditLogResponse(BaseModel):
 
 
 class AuditLogList(BaseModel):
+    """Réponse paginée pour la liste des journaux d'audit."""
+
     items: List[AuditLogResponse]
     total: int
 
@@ -46,7 +53,7 @@ async def list_audit_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.AUDIT_LOG_VIEW)),
 ):
-    """List audit logs with pagination and filters."""
+    """Liste les journaux d'audit avec pagination et filtres — réservé aux rôles AUDITOR et ADMIN."""
     query = db.query(AuditLog)
 
     if action:

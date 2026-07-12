@@ -1,4 +1,10 @@
-# Module d'audit : système de fichiers, partitionnement, droits spéciaux
+"""Module d'audit du système de fichiers Linux.
+
+Couvre les recommandations ANSSI-BP-028 v2.0 relatives au cloisonnement des
+partitions (R28-R29), aux permissions des fichiers sensibles (R49), aux
+fichiers world-writable (R52), aux fichiers sans propriétaire (R53), au
+sticky bit (R54) et aux exécutables setuid/setgid (R56-R57).
+"""
 # Référentiel : ANSSI-BP-028 v2.0 — Sections 6.1 (Partitionnement) + 6.4 (Fichiers et répertoires)
 # Checks : R28-R29 (partitions), R49-R57 (permissions, setuid/setgid, sticky bit)
 
@@ -302,6 +308,22 @@ def _r56_r57_setuid_setgid(ssh):
 
 
 def run_audit(ssh, rules):
+    """Exécute l'audit complet du système de fichiers sur la cible Linux.
+
+    Enchaîne les vérifications R28 à R57 en délégant à chaque sous-fonction
+    ANSSI spécialisée, puis agrège findings et passed.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles ; clé reconnue — ``sensitive_files`` (liste de
+               tuples pour surcharger ``SENSITIVE_FILES``).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — non-conformités détectées.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

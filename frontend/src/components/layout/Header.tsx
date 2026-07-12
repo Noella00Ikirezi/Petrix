@@ -1,3 +1,8 @@
+/**
+ * Barre de navigation supérieure de l'application.
+ * Contient le bouton hamburger mobile, le toggle dark/light mode, les notifications
+ * et le menu déroulant utilisateur (profil, déconnexion).
+ */
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Moon, Sun, Bell, LogOut, User, Settings, ChevronDown, Menu } from 'lucide-react';
@@ -11,6 +16,10 @@ const ROLE_COLORS: Record<string, string> = {
   viewer:  'bg-gray-500',
 };
 
+/**
+ * Avatar utilisateur : affiche la photo de profil si disponible,
+ * sinon un cercle coloré selon le rôle avec les initiales de l'utilisateur.
+ */
 function Avatar({ user }: { user: { first_name: string | null; last_name: string | null; email: string; role: string; avatar_url?: string | null } | null }) {
   const initials = user
     ? user.first_name && user.last_name
@@ -39,6 +48,10 @@ function Avatar({ user }: { user: { first_name: string | null; last_name: string
   );
 }
 
+/**
+ * En-tête principal de l'application.
+ * @param onMenuClick - Callback déclenché par le bouton hamburger pour basculer la sidebar mobile.
+ */
 export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const [isDark, setIsDark] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -63,6 +76,7 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  /** Bascule le thème sombre/clair et persiste le choix dans localStorage. */
   const toggleDarkMode = () => {
     const newValue = !isDark;
     setIsDark(newValue);
@@ -70,6 +84,7 @@ export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     document.documentElement.classList.toggle('dark', newValue);
   };
 
+  /** Invalide la session côté serveur puis vide le store et redirige vers /login. */
   const handleLogout = async () => {
     setMenuOpen(false);
     await authApi.logout();

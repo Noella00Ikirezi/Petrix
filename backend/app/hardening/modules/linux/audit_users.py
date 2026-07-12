@@ -1,4 +1,10 @@
-# Module d'audit : comptes utilisateurs, sudo, politiques d'accès
+"""Module d'audit des comptes utilisateurs et de la politique sudo pour Linux.
+
+Implémente les recommandations ANSSI-BP-028 v2.0 § 6.2 : comptes inutilisés
+(R30), politique de mots de passe (R31), timeout de session (R32),
+imputabilité des admins (R33), comptes de service (R34), UMASK (R36),
+configuration sudo R37-R44.
+"""
 # Référentiel : ANSSI-BP-028 v2.0 — Section 6.2 (Comptes d'accès)
 # Checks : R30 (comptes inutilisés), R31 (mots de passe), R32 (sessions),
 #          R33 (imputabilité), R34 (comptes service), R36 (UMASK), R37-R44 (sudo)
@@ -367,6 +373,21 @@ def _r37_r44_sudo_config(ssh):
 
 
 def run_audit(ssh, rules):
+    """Exécute l'ensemble des contrôles utilisateurs/sudo sur la cible Linux.
+
+    Délègue à chaque sous-fonction ANSSI (R30–R44) puis agrège les résultats.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles (non utilisé directement ici ; transmis aux
+               sous-fonctions pour extensions futures).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — non-conformités détectées.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

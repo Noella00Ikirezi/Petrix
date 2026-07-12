@@ -1,4 +1,6 @@
-"""API v1 main router."""
+"""Point d'entrée principal de l'API v1 — agrège tous les sous-routers FastAPI.
+Chaque module expose un router monté ici avec son préfixe URL et son tag OpenAPI pour la documentation Swagger.
+"""
 from fastapi import APIRouter
 
 from app.api.v1 import auth, users, assets, vulnerabilities, dashboard, system, audit_logs, hardening, agent_download, feed

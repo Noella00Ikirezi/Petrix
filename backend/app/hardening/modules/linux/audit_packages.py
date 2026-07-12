@@ -1,4 +1,9 @@
-# Module d'audit : gestion des paquets et maintenance
+"""Module d'audit de la gestion des paquets et de la maintenance système Linux.
+
+Implémente les recommandations ANSSI-BP-028 v2.0 § 6.5-6.6 : suppression des
+paquets inutiles (R58), vérification des dépôts APT/YUM (R59) et contrôle
+des mises à jour de sécurité en attente (R61).
+"""
 # Référentiel : ANSSI-BP-028 v2.0 — Section 6.5-6.6
 # Checks : R58 (paquets strictement nécessaires), R59 (dépôts de confiance), R61 (mises à jour)
 
@@ -215,6 +220,22 @@ def _r61_security_updates(ssh):
 
 
 def run_audit(ssh, rules):
+    """Audite la gestion des paquets et les mises à jour système.
+
+    Enchaîne les vérifications R58 (paquets inutiles), R59 (dépôts),
+    R61 (mises à jour en attente) et agrège les résultats.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles (non utilisé pour ce module).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — paquets dangereux présents, dépôts non
+                                    officiels ou mises à jour manquantes.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

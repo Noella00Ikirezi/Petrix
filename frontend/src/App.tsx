@@ -1,3 +1,8 @@
+/**
+ * Routeur principal de Petrix.
+ * Déclare toutes les routes de l'application avec chargement différé (lazy/Suspense),
+ * et protège les routes via trois gardes RBAC : ProtectedRoute, AuditorRoute, AdminRoute.
+ */
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
@@ -25,13 +30,20 @@ const Spinner = () => (
 
 // ─── Route guards ─────────────────────────────────────────────────────────────
 
+/**
+ * Garde de route pour tout utilisateur authentifié.
+ * Redirige vers /login si la session est absente, sinon enveloppe la page dans le Layout applicatif.
+ */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated);
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <Layout>{children}</Layout>;
 }
 
-/** Admins uniquement. Redirige vers /dashboard pour les autres rôles. */
+/**
+ * Garde de route réservée aux administrateurs.
+ * Redirige vers /login si non connecté, vers /dashboard si le rôle est insuffisant.
+ */
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -39,7 +51,10 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <Layout>{children}</Layout>;
 }
 
-/** Admins + Auditeurs. */
+/**
+ * Garde de route accessible aux rôles admin et auditor.
+ * Redirige les autres profils connectés vers /dashboard.
+ */
 function AuditorRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -49,6 +64,10 @@ function AuditorRoute({ children }: { children: React.ReactNode }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Composant racine : définit la table de routage complète de l'application
+ * avec chargement différé de chaque page et un fallback Spinner pendant la résolution.
+ */
 function App() {
   return (
     <Suspense fallback={<Spinner />}>

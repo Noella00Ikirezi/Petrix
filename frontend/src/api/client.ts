@@ -1,3 +1,9 @@
+/**
+ * Couche d'accès HTTP de Petrix.
+ * Configure une instance Axios partagée avec injection automatique du token JWT,
+ * gestion transparente du refresh token (file d'attente anti-concurrence),
+ * et expose un objet API par domaine fonctionnel (auth, assets, vulns, scans…).
+ */
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -12,6 +18,10 @@ export const apiClient = axios.create({
   },
 });
 
+/**
+ * Intercepteur de requête : injecte le Bearer token JWT dans l'en-tête Authorization
+ * si l'utilisateur est actuellement authentifié.
+ */
 // Add auth token to requests
 apiClient.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
@@ -28,6 +38,11 @@ let failedQueue: Array<{
   reject: (reason: unknown) => void;
 }> = [];
 
+/**
+ * Résout ou rejette toutes les requêtes en attente après une tentative de refresh.
+ * @param error - Erreur à propager si le refresh a échoué (null si succès).
+ * @param token - Nouveau access token à injecter si le refresh a réussi.
+ */
 const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((prom) => {
     if (token) {
@@ -92,6 +107,10 @@ apiClient.interceptors.response.use(
   }
 );
 
+/**
+ * API d'authentification : inscription, connexion en deux étapes (MFA email OTP),
+ * rafraîchissement de token et récupération du profil courant.
+ */
 // Auth API (2-step MFA)
 export const authApi = {
   signup: async (email?: string, password?: string, firstName?: string, lastName?: string) => {
@@ -133,6 +152,7 @@ export const authApi = {
   },
 };
 
+/** CRUD complet sur les actifs (assets) de l'inventaire ; inclut un endpoint de statistiques globales. */
 // Assets API
 export const assetsApi = {
   list: async (params?: Record<string, unknown>) => {
@@ -160,6 +180,7 @@ export const assetsApi = {
   },
 };
 
+/** CRUD sur les vulnérabilités CVE enregistrées dans la base Petrix ; inclut un résumé statistique. */
 // Vulnerabilities API
 export const vulnsApi = {
   list: async (params?: Record<string, unknown>) => {
@@ -187,6 +208,7 @@ export const vulnsApi = {
   },
 };
 
+/** Gestion du cycle de vie des scans : création, démarrage, annulation et consultation des findings. */
 // Scans API
 export const scansApi = {
   list: async (params?: Record<string, unknown>) => {
@@ -242,6 +264,10 @@ export const auditLogsApi = {
   },
 };
 
+/**
+ * API de durcissement (HCO) ANSSI-BP-028 : modules, cibles, sessions d'audit,
+ * findings, rapport complet, import XML agent et chat IA (Mistral).
+ */
 // Hardening (HCO) API
 export const hardeningApi = {
   listModules: async () => {
@@ -295,6 +321,7 @@ export const hardeningApi = {
   },
 };
 
+/** Flux CERT-FR (alertes, avis, IOC…) et corrélations CVE avec les vulnérabilités locales. */
 export const feedApi = {
   certFr: async (feedType: 'alerte' | 'avis' | 'dur' | 'ioc' | 'actualite' = 'alerte') => {
     const response = await apiClient.get(`/feed/cert-fr?feed_type=${feedType}`);
@@ -314,6 +341,7 @@ export const feedApi = {
   },
 };
 
+/** Corrélations entre les findings d'une session de durcissement et les alertes CERT-FR. */
 export const hardeningCorrelationsApi = {
   sessionCorrelations: async (sessionId: string) => {
     const response = await apiClient.get(`/hardening/sessions/${sessionId}/cert-correlations`);

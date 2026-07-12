@@ -1,9 +1,18 @@
+/**
+ * Page d'inscription publique de Petrix.
+ * Collecte prénom, nom, email et mot de passe (min. 8 caractères, confirmation),
+ * appelle authApi.signup puis redirige vers la page de connexion.
+ */
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '@/api/client';
 
+/**
+ * Formulaire de création de compte : valide localement les champs
+ * avant d'appeler l'API d'inscription et de rediriger vers /login.
+ */
 export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -13,6 +22,10 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
+  /**
+   * Valide les champs du formulaire (prénom/nom requis, mots de passe identiques et ≥ 8 chars)
+   * puis soumet la requête d'inscription à l'API.
+   */
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim() || !lastName.trim()) {

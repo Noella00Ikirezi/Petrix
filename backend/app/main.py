@@ -1,4 +1,9 @@
-"""FastAPI application entry point."""
+"""Point d'entrée de l'application FastAPI Petrix.
+
+Initialise l'application, configure le middleware CORS, enregistre le routeur API
+et gère les événements de démarrage/arrêt via le gestionnaire de contexte ``lifespan``.
+Ce module est le seul endroit où la topologie de l'application est assemblée.
+"""
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,18 +17,27 @@ from app.api.v1.router import api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan events."""
-    # Startup
+    """Gestionnaire de cycle de vie FastAPI : démarrage et arrêt de l'application.
+
+    Au démarrage :
+    - Crée les tables SQLAlchemy si elles n'existent pas encore. L'appel est
+      encadré d'un try/except car plusieurs workers Uvicorn peuvent s'exécuter
+      en parallèle et déclencher une erreur de concurrence sur ``CREATE TABLE``.
+    - Crée l'utilisateur admin par défaut s'il est absent, afin que la plateforme
+      soit immédiatement opérationnelle à l'issue du premier déploiement.
+
+    À l'arrêt : journalise la fermeture propre (le yield délimite les deux phases).
+    """
     logger.info("Starting Petrix API...")
 
-    # Create tables (wrapped to handle concurrent-worker race condition)
+    # Création des tables — le try/except absorbe la race condition multi-workers
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created")
     except Exception as e:
         logger.warning(f"create_all skipped (likely already done by another worker): {e}")
 
-    # Create default admin user if not exists
+    # Imports différés pour éviter les dépendances circulaires au niveau module
     from app.infrastructure.database import SessionLocal
     from app.infrastructure.database.models import User
     from app.core.security import get_password_hash
@@ -49,7 +63,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
     logger.info("Shutting down Petrix API...")
 
 
@@ -58,10 +71,11 @@ app = FastAPI(
     description="Petrix API - Security & Compliance Platform",
     version="0.1.0",
     lifespan=lifespan,
+    # redirect_slashes=False : évite les redirections 307 non souhaitées sur les
+    # routes avec ou sans slash final (comportement prévisible pour les clients API).
     redirect_slashes=False,
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -70,11 +84,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API router
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Retourne le statut de disponibilité de l'API (sonde de liveness HTTP simple).
+
+    Intentionnellement léger : ne consulte pas la base de données ni Redis pour ne
+    pas bloquer un redémarrage en cas de panne de ces dépendances.
+    """
     return {"status": "healthy", "version": "0.1.0"}

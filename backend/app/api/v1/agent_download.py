@@ -1,4 +1,9 @@
-"""Agent download endpoints — generate tokens, serve install scripts, and manage agent jobs."""
+"""Router de téléchargement de l'agent Petrix : génération de tokens longue durée, distribution des scripts d'installation et modèle pull de jobs.
+
+Ce module gère le cycle de vie côté serveur de l'agent Petrix : création du token JWT agent
+(30 jours), téléchargement des installeurs paramétrés pour Linux/macOS/Windows et acquisition
+des jobs de scan via le modèle pull (poll + claim) utilisé par les agents déployés.
+"""
 import uuid as _uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,14 +21,27 @@ router = APIRouter()
 
 INSTALL_DIR = Path(__file__).parent.parent.parent.parent / "agent" / "install"
 
-# Magic markers in the pre-compiled Windows .exe — patched at download time
+# Marqueurs magiques inscrits dans l'exécutable Windows pré-compilé et remplacés à la volée lors du téléchargement
 _MAGIC_SRV = b"PTXSRV1!"
 _MAGIC_TKN = b"PTXTKN1!"
-_SRV_LEN   = 128   # bytes reserved after magic for server URL
-_TKN_LEN   = 2048  # bytes reserved after magic for token
+_SRV_LEN   = 128   # octets réservés après le marqueur pour l'URL du serveur
+_TKN_LEN   = 2048  # octets réservés après le marqueur pour le token JWT
 
 
 def _patch_exe(data: bytes, server_url: str, token: str) -> bytes:
+    """Injecte l'URL du serveur et le token JWT dans l'exécutable Windows pré-compilé.
+
+    Localise les marqueurs magiques dans le binaire et écrase les zones réservées
+    par les valeurs encodées en UTF-8, complétées à la bonne longueur par des octets nuls.
+
+    Args:
+        data: Contenu brut de l'exécutable Windows (bytes).
+        server_url: URL du serveur Petrix à inscrire après ``_MAGIC_SRV`` (tronquée à 128 octets).
+        token: Token JWT d'agent à inscrire après ``_MAGIC_TKN`` (tronqué à 2048 octets).
+
+    Returns:
+        Nouveau contenu binaire de l'exécutable avec les zones patchées.
+    """
     buf = bytearray(data)
 
     idx = buf.find(_MAGIC_SRV)
@@ -43,7 +61,7 @@ def _patch_exe(data: bytes, server_url: str, token: str) -> bytes:
 async def generate_agent_token(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Generate a long-lived agent token (30 days) — requires login only."""
+    """Génère un token JWT longue durée (30 jours) à configurer dans l'agent — tout utilisateur authentifié."""
     token = create_token(
         data={"sub": str(current_user.id), "agent": True},
         token_type="access",
@@ -54,7 +72,7 @@ async def generate_agent_token(
 
 @router.get("/download/wheel")
 async def download_agent_wheel():
-    """Serve the petrix-agent Python wheel — no auth required (token in config.env protects access)."""
+    """Sert le wheel Python ``petrix-agent`` le plus récent — sans authentification (le token dans config.env protège l'accès)."""
     import glob
     wheels = sorted(glob.glob(str(INSTALL_DIR / "petrix_agent-*.whl")))
     if not wheels:
@@ -73,9 +91,9 @@ async def download_installer(
     server_url: str = "https://petrix.noellahome.org",
     token: str = "",
 ):
-    """Serve the OS-specific installer — no auth required, the embedded token protects access."""
+    """Sert l'installeur spécifique à l'OS avec token et URL pré-inscrits — sans authentification, le token embarqué protège l'accès."""
 
-    # Windows EXE — binary patching
+    # Installeur Windows EXE — injection binaire du token et de l'URL
     if os_name == "windows":
         exe_path = INSTALL_DIR / "petrix-installer-base.exe"
         if not exe_path.exists():
@@ -89,7 +107,7 @@ async def download_installer(
             headers={"Content-Disposition": 'attachment; filename="petrix-agent-installer.exe"'},
         )
 
-    # PowerShell script for Windows (fallback when no EXE, or explicit request)
+    # Scripts shell/PowerShell (Linux, macOS, Windows PowerShell en fallback ou demande explicite)
     scripts = {
         "linux":      ("install-linux.sh",      "text/x-sh",          "petrix-agent-install-linux.sh"),
         "macos":      ("install-macos.sh",       "text/x-sh",          "petrix-agent-install-macos.sh"),
@@ -107,10 +125,10 @@ async def download_installer(
     if token:
         content = (
             content
-            # bash / sh scripts: PETRIX_SERVER=""
+            # Scripts bash/sh — variables sans guillemets internes
             .replace('PETRIX_SERVER=""', f'PETRIX_SERVER="{server_url}"')
             .replace('PETRIX_TOKEN=""',  f'PETRIX_TOKEN="{token}"')
-            # PowerShell scripts: $PETRIX_SERVER = ""
+            # Scripts PowerShell — variables avec espaces autour du signe égal
             .replace('$PETRIX_SERVER = ""', f'$PETRIX_SERVER = "{server_url}"')
             .replace('$PETRIX_TOKEN = ""',  f'$PETRIX_TOKEN = "{token}"')
         )
@@ -123,7 +141,7 @@ async def download_installer(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Agent job polling — market-standard pull model
+# Polling de jobs agent — modèle pull (l'agent interroge puis acquiert ses scans)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/jobs")
@@ -132,10 +150,7 @@ async def get_agent_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Agent polls this every N minutes to discover scans assigned to it.
-    A scan is 'assigned' when config.agent_ip matches one of the agent's IPs.
-    Returns PENDING scans only — agent claims them via /jobs/{id}/claim.
-    """
+    """Retourne les scans PENDING assignés à cet agent (par correspondance d'IP) — l'agent appelle cet endpoint toutes les N minutes pour découvrir ses jobs."""
     agent_ips = {ip.strip() for ip in ips.split(",") if ip.strip()}
     if not agent_ips:
         return {"jobs": []}
@@ -168,9 +183,7 @@ async def claim_agent_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Agent claims a pending job — sets it RUNNING without triggering Celery.
-    Only works on PENDING scans; returns 409 if already claimed by another agent.
-    """
+    """Acquiert un job PENDING et le passe en RUNNING sans déclencher Celery — retourne 409 si déjà acquis par un autre agent."""
     try:
         uid = _uuid.UUID(scan_id)
     except ValueError:

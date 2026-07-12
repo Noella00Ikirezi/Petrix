@@ -1,6 +1,23 @@
-# Module d'audit : vérifie les comptes utilisateurs macOS Intel via Directory Services (dscl)
+"""Module d'audit des comptes utilisateurs macOS Intel.
+
+Interroge le répertoire local via ``dscl`` pour détecter les comptes système
+inattendus (UID 1–499), le compte Guest actif et les shells non conformes.
+"""
+
 
 def run_audit(ssh, rules):
+    """Audite les comptes utilisateurs macOS Intel via Directory Services.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles (non utilisé pour ce module).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — comptes à risque détectés.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

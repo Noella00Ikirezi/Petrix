@@ -1,5 +1,27 @@
-# Audit de la configuration SSH - macOS Intel
+"""Module d'audit SSH pour macOS Intel (x86_64).
+
+Vérifie les directives sshd_config pertinentes pour macOS : PermitRootLogin,
+PasswordAuthentication, ChallengeResponseAuthentication (spécifique macOS),
+PubkeyAuthentication, PermitEmptyPasswords, X11Forwarding et MaxAuthTries.
+"""
+
+
 def run_audit(ssh, rules):
+    """Audite la configuration sshd_config sur macOS Intel.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles ; clés reconnues — ``root_login``,
+               ``password_auth``, ``challenge_response_auth``,
+               ``pubkey_auth``, ``permit_empty_passwords``,
+               ``x11_forwarding``, ``max_auth_tries``.
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — directives non conformes.
+            passed   (list[dict]) — directives conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

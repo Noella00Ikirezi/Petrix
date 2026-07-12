@@ -1,3 +1,9 @@
+/**
+ * Page de rapport d'audit de durcissement HCO.
+ * Affiche le rapport complet d'une session (score, grade, analyse IA Mistral, findings par module,
+ * ports réseau dangereux) avec export PDF et chat IA contextuel.
+ * Accessible via /audit ou /audit/:sessionId.
+ */
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -14,6 +20,7 @@ import { hardeningApi } from '@/api/client';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+/** Résultat d'un contrôle de sécurité ANSSI-BP-028 avec statut PASS/FAIL/WARN et remédiation. */
 interface Finding {
   id: string;
   check_id: string;
@@ -45,6 +52,7 @@ interface Session {
   duration_seconds: number | null;
 }
 
+/** Analyse IA Mistral : résumé exécutif, top priorités, évaluation ANSSI et plan de remédiation. */
 interface AiAnalysis {
   resume_executif: string;
   top_priorites: string[];
@@ -111,6 +119,11 @@ function formatDate(iso: string | null) {
 
 // ─── FindingCard ─────────────────────────────────────────────────────────────
 
+/**
+ * Carte expandable d'un finding de sécurité : affiche la valeur trouvée vs attendue,
+ * la remédiation en ligne de commande, les CVE liées et les références ANSSI-BP-028.
+ * @param f - Finding issu du rapport d'audit.
+ */
 function FindingCard({ f }: { f: Finding }) {
   const [open, setOpen] = useState(false);
   const sev = SEV[f.severity] ?? SEV.INFO;
@@ -205,6 +218,10 @@ function FindingCard({ f }: { f: Finding }) {
 
 // ─── Session Selector (quand pas de sessionId dans l'URL) ────────────────────
 
+/**
+ * Sélecteur de session affiché quand /audit est ouvert sans :sessionId.
+ * Liste toutes les sessions complétées et redirige vers /audit/:sessionId au choix.
+ */
 function SessionSelector() {
   const navigate = useNavigate();
   const { data: sessions = [], isLoading } = useQuery({
@@ -261,6 +278,13 @@ function SessionSelector() {
 
 // ─── Rapport imprimable / export PDF ─────────────────────────────────────────
 
+/**
+ * Vue d'impression du rapport d'audit : génère un document PDF complet avec score,
+ * analyse IA et findings groupés par module. Déclenche window.print() si autoDownload est true.
+ * @param report - Rapport complet incluant session, findings et analyse IA.
+ * @param onClose - Callback pour fermer la vue d'impression.
+ * @param autoDownload - Si true, ouvre automatiquement la boîte de dialogue d'impression.
+ */
 function PrintableReport({ report, onClose, autoDownload = false }: { report: FullReport; onClose: () => void; autoDownload?: boolean }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const { session, findings, ai_analysis } = report;
@@ -509,11 +533,17 @@ function PrintableReport({ report, onClose, autoDownload = false }: { report: Fu
 type Tab = 'ai' | 'findings' | 'passed' | 'ports' | 'compliance';
 
 // Detect if a network finding is a dangerous port
+/** Prédicat : renvoie true si le finding correspond à un port réseau considéré dangereux (FTP, Telnet, SMB, Redis…). */
 const isDangerousPort = (f: Finding) =>
   f.module === 'network' && f.check_name.includes('DANGEREUX');
 
 const isNetworkPort = (f: Finding) => f.module === 'network';
 
+/**
+ * Page de rapport d'audit : sélectionne la session (via URL ou sélecteur),
+ * charge le rapport complet, et affiche score, analyse IA Mistral, findings filtrés
+ * par module/sévérité, ports réseau dangereux et interface de chat IA contextuel.
+ */
 export default function AuditReportPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();

@@ -1,3 +1,8 @@
+/**
+ * Page de gestion des systèmes audités (périmètre ANSSI-BP-028).
+ * Permet d'ajouter des cibles, de télécharger l'agent d'audit adapté à l'OS,
+ * d'importer les rapports XML et de consulter le score de conformité par système.
+ */
 import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +16,7 @@ import { hardeningApi } from '@/api/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** Résumé de la dernière session de durcissement rattachée à une cible. */
 interface LatestSession {
   session_id: string;
   status: string;
@@ -23,6 +29,7 @@ interface LatestSession {
   findings_summary: Record<string, number> | null;
 }
 
+/** Cible d'audit (système) avec son historique de sessions et ses métadonnées OS. */
 interface Target {
   id: string;
   name: string;
@@ -80,6 +87,10 @@ const SCORE_COLOR = (score: number) => {
   return 'text-red-600';
 };
 
+/**
+ * Renvoie un badge JSX indiquant l'état de la dernière session de la cible.
+ * @param s - Dernière session ou null si jamais auditée.
+ */
 function statusBadge(s: LatestSession | null) {
   if (!s) return (
     <span className="flex items-center gap-1 text-xs text-gray-400">
@@ -110,6 +121,11 @@ function formatDate(iso: string | null) {
 
 // ─── Add System Modal ─────────────────────────────────────────────────────────
 
+/**
+ * Modale d'ajout d'un nouveau système à auditer.
+ * Crée la cible via hardeningApi.createTarget et affiche les instructions de lancement de l'agent.
+ * @param onClose - Callback de fermeture de la modale.
+ */
 function AddSystemModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
@@ -190,6 +206,12 @@ function AddSystemModal({ onClose }: { onClose: () => void }) {
 
 // ─── Download Agent Modal ─────────────────────────────────────────────────────
 
+/**
+ * Modale guide d'audit en 3 étapes : téléchargement de l'agent, exécution sur la cible,
+ * import du rapport XML. Adapte les commandes selon l'OS de la cible (Linux/macOS/Windows).
+ * @param target - Cible à auditer.
+ * @param onClose - Callback de fermeture.
+ */
 function DownloadAgentModal({ target, onClose }: { target: Target; onClose: () => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -298,6 +320,10 @@ function DownloadAgentModal({ target, onClose }: { target: Target; onClose: () =
 
 // ─── System Card ──────────────────────────────────────────────────────────────
 
+/**
+ * Carte d'un système audité affichant le grade, le score de conformité, le statut
+ * et les findings critiques/élevés. Propose les actions Auditer, Rapport et Supprimer.
+ */
 function SystemCard({ target, onShowAgent, onDelete }: {
   target: Target;
   onShowAgent: (t: Target) => void;
@@ -408,6 +434,11 @@ function SystemCard({ target, onShowAgent, onDelete }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+/**
+ * Page principale des systèmes audités.
+ * Charge la liste des cibles, affiche les statistiques globales (score moyen, critiques)
+ * et gère les flux d'ajout de système et d'import XML global.
+ */
 export default function AssetsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');

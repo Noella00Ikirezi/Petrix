@@ -1,3 +1,8 @@
+/**
+ * Page d'administration des utilisateurs (rôle admin requis).
+ * Permet de créer, éditer, activer/désactiver, réinitialiser le mot de passe
+ * et supprimer des comptes. Affiche les statistiques par rôle et un filtre multi-critères.
+ */
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import {
@@ -20,6 +25,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+/** Représentation étendue d'un utilisateur pour la page d'administration (permissions et état d'activité). */
 interface User {
   id: string;
   email: string;
@@ -33,6 +39,7 @@ interface User {
   avatar_url?: string | null;
 }
 
+/** Rôle RBAC avec sa description et son nombre d'utilisateurs associés. */
 interface Role {
   name: string;
   value: string;
@@ -41,6 +48,7 @@ interface Role {
   user_count: number;
 }
 
+/** Statistiques globales des utilisateurs : totaux, actifs/inactifs et répartition par rôle. */
 interface UserStats {
   total_users: number;
   active_users: number;
@@ -64,6 +72,11 @@ const roleIcons: Record<string, React.ReactNode> = {
   viewer: <Eye className="h-4 w-4" />,
 };
 
+/**
+ * Page d'administration des utilisateurs (admin uniquement).
+ * Charge la liste des comptes, les rôles et les statistiques, puis expose
+ * des modales d'action (création, édition de rôle, réinitialisation MDP, suppression).
+ */
 export default function UsersPage() {
   const { token, user: currentUser } = useAuthStore();
   const [users, setUsers] = useState<User[]>([]);
@@ -93,6 +106,7 @@ export default function UsersPage() {
     fetchData();
   }, [token]);
 
+  /** Charge en parallèle la liste des utilisateurs, les rôles disponibles et les statistiques. */
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -131,6 +145,10 @@ export default function UsersPage() {
   });
 
   // Actions
+  /**
+   * Active un compte utilisateur via PATCH /users/:id/activate.
+   * @param user - Utilisateur à activer.
+   */
   const handleActivate = async (user: User) => {
     try {
       const res = await fetch(`${API_URL}/api/v1/users/${user.id}/activate`, {

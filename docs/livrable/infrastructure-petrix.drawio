@@ -1,0 +1,175 @@
+<mxfile host="Electron">
+  <diagram name="Infrastructure Petrix" id="petrix-infra">
+    <mxGraphModel dx="1574" dy="810" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=0;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;strokeColor=none;fillColor=none;" value="Infrastructure Petrix — AWS + Cloudflare + Proxmox Home Lab" vertex="1">
+          <mxGeometry height="36" width="1254" x="200" y="12" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=0;align=center;verticalAlign=middle;fontSize=11;fontStyle=0;strokeColor=none;fillColor=none;fontColor=#666666;" value="Projet Annuel 4SI4 — IKIREZI Noella — 2025/2026" vertex="1">
+          <mxGeometry height="20" width="1254" x="200" y="46" as="geometry" />
+        </mxCell>
+        <mxCell id="internet" parent="1" style="shape=cloud;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;align=center;" value="Internet&#xa;Utilisateurs" vertex="1">
+          <mxGeometry height="85" width="400" x="627" y="78" as="geometry" />
+        </mxCell>
+        <mxCell id="cf-zone" parent="1" style="swimlane;startSize=38;fillColor=#FFF3E0;strokeColor=#f6821f;strokeWidth=3;fontColor=#e65100;fontSize=14;fontStyle=1;rounded=1;arcSize=3;" value="Cloudflare — noellahome.org" vertex="1">
+          <mxGeometry height="155" width="1074" x="290" y="193" as="geometry" />
+        </mxCell>
+        <mxCell id="cf-hco" parent="cf-zone" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#f6821f;strokeColor=#e65100;fontColor=#ffffff;fontSize=12;fontStyle=1;align=center;" value="Tunnel : hco&#xa;hco.noellahome.org" vertex="1">
+          <mxGeometry height="72" width="250" x="40" y="52" as="geometry" />
+        </mxCell>
+        <mxCell id="cf-dns" parent="cf-zone" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;align=center;" value="HTTPS / TLS auto&#xa;WAF · DDoS Protection" vertex="1">
+          <mxGeometry height="72" width="250" x="412" y="52" as="geometry" />
+        </mxCell>
+        <mxCell id="cf-petrix" parent="cf-zone" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#f6821f;strokeColor=#e65100;fontColor=#ffffff;fontSize=12;fontStyle=1;align=center;" value="Tunnel : petrix&#xa;petrix.noellahome.org" vertex="1">
+          <mxGeometry height="72" width="250" x="784" y="52" as="geometry" />
+        </mxCell>
+        <mxCell id="prx-zone" parent="1" style="swimlane;startSize=40;fillColor=#FFFDE7;strokeColor=#F9A825;strokeWidth=3;fontColor=#F57F17;fontSize=14;fontStyle=1;rounded=1;arcSize=2;" value="Proxmox Home Lab — 212.195.255.35" vertex="1">
+          <mxGeometry height="785" width="650" x="20" y="385" as="geometry" />
+        </mxCell>
+        <mxCell id="vmbr0" parent="prx-zone" style="swimlane;startSize=28;fillColor=#FBE9E7;strokeColor=#BF360C;fontColor=#BF360C;fontSize=11;fontStyle=1;rounded=1;" value="vmbr0 — LAN 192.168.1.0/24" vertex="1">
+          <mxGeometry height="160" width="610" x="20" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="pve" parent="vmbr0" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#BF360C;strokeColor=#8D1A00;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="Proxmox VE 8&#xa;192.168.1.100&#xa;SSH :2222" vertex="1">
+          <mxGeometry height="70" width="160" x="15" y="38" as="geometry" />
+        </mxCell>
+        <mxCell id="guac" parent="vmbr0" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#E8F5E9;strokeColor=#388E3C;fontSize=11;fontStyle=1;" value="Guacamole CT&#xa;192.168.1.200&#xa;Web RDP / SSH" vertex="1">
+          <mxGeometry height="70" width="160" x="195" y="38" as="geometry" />
+        </mxCell>
+        <mxCell id="win11" parent="vmbr0" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=11;fontStyle=1;" value="Win11 VM&#xa;192.168.1.x&#xa;Wazuh agent (TODO)" vertex="1">
+          <mxGeometry height="70" width="160" x="375" y="38" as="geometry" />
+        </mxCell>
+        <mxCell id="nat" parent="vmbr0" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#FFCCBC;strokeColor=#BF360C;fontSize=10;align=center;" value="iptables NAT : vmbr1/vmbr2 sortie Internet via vmbr0 — vmbr2 bloque LAN (DMZ isolee)" vertex="1">
+          <mxGeometry height="30" width="580" x="15" y="118" as="geometry" />
+        </mxCell>
+        <mxCell id="vmbr1" parent="prx-zone" style="swimlane;startSize=28;fillColor=#E8EAF6;strokeColor=#3949AB;fontColor=#3949AB;fontSize=11;fontStyle=1;rounded=1;" value="vmbr1 — Internal 192.168.10.0/24" vertex="1">
+          <mxGeometry height="240" width="420" x="20" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="wazuh-mgr" parent="vmbr1" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#003F5C;strokeColor=#002B40;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="Wazuh SIEM CT&#xa;192.168.10.10&#xa;Manager v4.14.1&#xa;Dashboard + Indexer" vertex="1">
+          <mxGeometry height="80" width="180" x="15" y="38" as="geometry" />
+        </mxCell>
+        <mxCell id="devenv" parent="vmbr1" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#EDE7F6;strokeColor=#512DA8;fontSize=11;fontStyle=1;" value="Dev-env CT&#xa;192.168.10.x&#xa;Debian 12&#xa;Wazuh agent v4.14.5" vertex="1">
+          <mxGeometry height="80" width="180" x="215" y="38" as="geometry" />
+        </mxCell>
+        <mxCell id="hco" parent="vmbr1" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#7B1FA2;strokeColor=#4A148C;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="HCO Framework CT&#xa;Python · SSH audit · Linux/Windows/macOS&#xa;Score de conformite + rapport HTML/JSON" vertex="1">
+          <mxGeometry height="75" width="380" x="15" y="135" as="geometry" />
+        </mxCell>
+        <mxCell id="vmbr2" parent="prx-zone" style="swimlane;startSize=28;fillColor=#FFEBEE;strokeColor=#C62828;fontColor=#C62828;fontSize=11;fontStyle=1;rounded=1;" value="vmbr2 — DMZ 192.168.20.0/24" vertex="1">
+          <mxGeometry height="240" width="170" x="460" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="kali" parent="vmbr2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#1A1A2E;strokeColor=#000000;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="Kali Linux VM&#xa;192.168.20.x&#xa;Pentest / CTF" vertex="1">
+          <mxGeometry height="70" width="148" x="10" y="38" as="geometry" />
+        </mxCell>
+        <mxCell id="kali-note" parent="vmbr2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#FFCDD2;strokeColor=#C62828;fontSize=10;align=center;" value="Sans acces LAN&#xa;Internet via NAT uniquement" vertex="1">
+          <mxGeometry height="40" width="148" x="10" y="123" as="geometry" />
+        </mxCell>
+        <mxCell id="cfd-hco" parent="prx-zone" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#f6821f;strokeColor=#e65100;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="cloudflared — tunnel hco (sur Proxmox)&#xa;hco.noellahome.org  →  HCO Framework CT" vertex="1">
+          <mxGeometry height="48" width="610" x="20" y="488" as="geometry" />
+        </mxCell>
+        <mxCell id="wazuh-agents" parent="prx-zone" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#E0F7FA;strokeColor=#00838F;fontSize=11;" value="Wazuh Agents (port 1514) : pve · guacamole · dev-env · win11-pve → Wazuh SIEM 192.168.10.10" vertex="1">
+          <mxGeometry height="42" width="610" x="20" y="552" as="geometry" />
+        </mxCell>
+        <mxCell id="hco-targets" parent="prx-zone" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#EDE7F6;strokeColor=#512DA8;fontSize=11;" value="Cibles audit SSH (HCO) : pve · guacamole · dev-env · EC2 AWS · Win11 (WinRM)" vertex="1">
+          <mxGeometry height="42" width="610" x="20" y="610" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="prx-zone" source="wazuh-agents" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#003F5C;strokeWidth=2;fontColor=#003F5C;fontStyle=1;fontSize=10;dashed=1;" target="wazuh-mgr" value="TCP 1514">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="prx-zone" source="hco" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#7B1FA2;strokeWidth=1;fontColor=#7B1FA2;fontSize=10;dashed=1;" target="hco-targets" value="SSH :22">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="225" y="545" />
+              <mxPoint x="325" y="545" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="aws-zone" parent="1" style="swimlane;startSize=40;fillColor=#EBF5FB;strokeColor=#1565C0;strokeWidth=3;fontColor=#1565C0;fontSize=14;fontStyle=1;rounded=1;arcSize=2;" value="AWS Cloud — eu-west-1 (Irlande) — Compte 655177115922" vertex="1">
+          <mxGeometry height="785" width="634" x="1000" y="385" as="geometry" />
+        </mxCell>
+        <mxCell id="vpc" parent="aws-zone" style="swimlane;startSize=28;fillColor=#BBDEFB;strokeColor=#1565C0;fontColor=#1565C0;fontSize=11;fontStyle=1;rounded=1;" value="VPC 10.0.0.0/16 — eu-west-1a" vertex="1">
+          <mxGeometry height="718" width="594" x="20" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ec2" parent="vpc" style="swimlane;startSize=40;fillColor=#E8F5E9;strokeColor=#2E7D32;strokeWidth=2;fontColor=#1B5E20;fontSize=12;fontStyle=1;rounded=1;" value="EC2 t3.small — 3.255.126.244" vertex="1">
+          <mxGeometry height="660" width="380" x="15" y="35" as="geometry" />
+        </mxCell>
+        <mxCell id="nginx" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#A5D6A7;strokeColor=#388E3C;fontSize=12;fontStyle=1;" value="nginx  :80  —  reverse proxy" vertex="1">
+          <mxGeometry height="42" width="350" x="15" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="cfd-petrix" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#f6821f;strokeColor=#e65100;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="cloudflared — tunnel petrix (sur EC2)" vertex="1">
+          <mxGeometry height="40" width="350" x="15" y="102" as="geometry" />
+        </mxCell>
+        <mxCell id="backend" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#00897B;strokeColor=#005B4F;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="backend — FastAPI :8000&#xa;Python 3.12 · SQLAlchemy · JWT · RBAC" vertex="1">
+          <mxGeometry height="60" width="168" x="15" y="155" as="geometry" />
+        </mxCell>
+        <mxCell id="celery" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#388E3C;strokeColor=#1B5E20;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="celery worker&#xa;Scans · IA · Rapports" vertex="1">
+          <mxGeometry height="60" width="168" x="197" y="155" as="geometry" />
+        </mxCell>
+        <mxCell id="frontend" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#0277BD;strokeColor=#01579B;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="frontend — React/Vite :5173&#xa;TypeScript · TailwindCSS" vertex="1">
+          <mxGeometry height="60" width="168" x="15" y="228" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#C62828;strokeColor=#8D1A00;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="Redis :6379&#xa;Cache · Celery broker" vertex="1">
+          <mxGeometry height="60" width="168" x="197" y="228" as="geometry" />
+        </mxCell>
+        <mxCell id="iam-role" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#FF8F00;strokeColor=#E65100;fontColor=#ffffff;fontSize=11;fontStyle=1;" value="IAM Role : petrix-ec2-role&#xa;Acces S3 sans cles hardcodees" vertex="1">
+          <mxGeometry height="48" width="350" x="15" y="305" as="geometry" />
+        </mxCell>
+        <mxCell id="modules" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#F5F5F5;strokeColor=#757575;fontSize=10;align=center;" value="Modules : Assets · Vulnerabilites · Scans · PentestAI · SMSI · Clients · Dashboard" vertex="1">
+          <mxGeometry height="42" width="350" x="15" y="367" as="geometry" />
+        </mxCell>
+        <mxCell id="sg" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=10;dashed=1;align=center;" value="Security Group : IN 22 (EC2 Connect) · 80 (HTTP) · 443 (HTTPS) — OUT tout" vertex="1">
+          <mxGeometry height="42" width="350" x="15" y="423" as="geometry" />
+        </mxCell>
+        <mxCell id="wazuh-ec2" parent="ec2" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#003F5C;strokeColor=#002B40;fontColor=#ffffff;fontSize=11;dashed=1;dashPattern=8 4;" value="Wazuh Agent — a installer" vertex="1">
+          <mxGeometry height="38" width="350" x="15" y="479" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="ec2" source="nginx" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#00897B;strokeWidth=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="backend" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="ec2" source="nginx" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#0277BD;strokeWidth=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="frontend" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="ec2" source="backend" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#C62828;strokeWidth=1;" target="redis" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rds" parent="vpc" style="shape=cylinder3;whiteSpace=wrap;html=0;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#1565C0;strokeColor=#0D47A1;fontColor=#ffffff;fontSize=10;fontStyle=1;align=center;" value="RDS PostgreSQL 14&#xa;db.t3.micro · Free Tier&#xa;:5432 — reseau prive VPC&#xa;petrix-db.cd6sag0ogxlm&#xa;.eu-west-1.rds.amazonaws.com" vertex="1">
+          <mxGeometry height="120" width="165" x="415" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" parent="vpc" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#558B2F;strokeColor=#33691E;fontColor=#ffffff;fontSize=10;fontStyle=1;align=center;" value="S3 Bucket&#xa;petrix-storage-655177115922&#xa;Rapports PDF/JSON&#xa;region : eu-west-1" vertex="1">
+          <mxGeometry height="90" width="165" x="415" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="groq" parent="vpc" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#F3E5F5;strokeColor=#7B1FA2;fontSize=10;fontStyle=1;align=center;" value="Groq API (externe)&#xa;LLM gratuit&#xa;IA · PentestAI" vertex="1">
+          <mxGeometry height="75" width="165" x="415" y="308" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="vpc" source="ec2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1565C0;strokeWidth=2;fontColor=#1565C0;fontStyle=1;fontSize=10;" target="rds" value="PostgreSQL :5432">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="vpc" source="ec2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#558B2F;strokeWidth=2;fontColor=#33691E;fontStyle=1;fontSize=10;" target="s3" value="AWS SDK / IAM role">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="vpc" source="ec2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#7B1FA2;strokeWidth=1;fontColor=#7B1FA2;fontSize=10;dashed=1;" target="groq" value="HTTPS API">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="internet" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#f6821f;strokeWidth=2;fontColor=#e65100;fontStyle=1;fontSize=11;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="cf-zone" value="HTTPS :443">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="cf-petrix" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1565C0;strokeWidth=2;fontColor=#1565C0;fontStyle=1;fontSize=11;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="cfd-petrix" value="Tunnel QUIC&#xa;(petrix → EC2)">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1290" y="255" />
+              <mxPoint x="1290" y="510" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="cf-hco" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F57F17;strokeWidth=2;fontColor=#e65100;fontStyle=1;fontSize=11;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="cfd-hco" value="Tunnel QUIC&#xa;(hco → Proxmox)">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="340" y="255" />
+              <mxPoint x="340" y="880" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

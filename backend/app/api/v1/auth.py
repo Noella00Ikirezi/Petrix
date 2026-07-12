@@ -1,4 +1,9 @@
-"""Authentication endpoints with MFA via email OTP."""
+"""Endpoints d'authentification Petrix — flux MFA à deux étapes via OTP par e-mail.
+
+Le flux de connexion se déroule en deux appels : POST /login (vérification des
+identifiants + envoi OTP via Celery) puis POST /verify-otp (validation de l'OTP et
+émission des tokens JWT access + refresh stockés dans Redis).
+"""
 import secrets
 from datetime import datetime, timedelta
 
@@ -32,23 +37,38 @@ from app.workers.email_tasks import send_otp_email_task
 router = APIRouter()
 
 
-# Schemas
+# Schémas Pydantic — requêtes et réponses de l'API d'authentification
+
 class LoginRequest(BaseModel):
+    """Corps de la requête POST /login : identifiants de l'utilisateur."""
+
     email: str
     password: str
 
 
 class LoginResponse(BaseModel):
+    """Réponse à POST /login : token MFA temporaire transmis à POST /verify-otp."""
+
     mfa_token: str
     message: str = "OTP sent to your email"
 
 
 class VerifyOtpRequest(BaseModel):
+    """Corps de la requête POST /verify-otp : token MFA + code OTP reçu par e-mail."""
+
     mfa_token: str
     code: str
 
 
 class AuthTokens(BaseModel):
+    """Paire de tokens JWT retournée après authentification complète.
+
+    Attributs :
+        access_token: JWT de courte durée à inclure dans l'en-tête ``Authorization: Bearer``.
+        refresh_token: JWT longue durée stocké côté client pour renouveler l'access token.
+        must_change_password: Indique que l'utilisateur doit changer son mot de passe immédiatement.
+    """
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -56,10 +76,14 @@ class AuthTokens(BaseModel):
 
 
 class RefreshRequest(BaseModel):
+    """Corps de la requête POST /refresh : refresh token à rotation."""
+
     refresh_token: str
 
 
 class UserResponse(BaseModel):
+    """Représentation publique d'un utilisateur retournée par les endpoints auth."""
+
     id: str
     email: str
     first_name: str | None
@@ -72,6 +96,8 @@ class UserResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
+    """Corps de la requête POST /register : création d'un compte avec rôle VIEWER par défaut."""
+
     email: EmailStr
     password: str
     first_name: str | None = None
@@ -79,12 +105,13 @@ class RegisterRequest(BaseModel):
 
 
 def _generate_otp() -> str:
-    """Generate a random OTP code."""
+    """Génère un code OTP numérique aléatoire de longueur ``settings.otp_length``."""
     digits = settings.otp_length
     return "".join(str(secrets.randbelow(10)) for _ in range(digits))
 
 
 def _get_client_ip(request: Request) -> str:
+    """Extrait l'adresse IP réelle du client en tenant compte du proxy inverse (X-Forwarded-For)."""
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -98,10 +125,25 @@ async def login(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Step 1: Verify credentials and send OTP via email."""
+    """Étape 1 du flux MFA : vérifie les identifiants et envoie l'OTP par e-mail.
+
+    Args:
+        data: E-mail et mot de passe de l'utilisateur.
+        request: Objet requête FastAPI (extraction IP pour le rate-limit).
+        db: Session de base de données synchrone.
+
+    Returns:
+        LoginResponse contenant le token MFA temporaire à passer à /verify-otp.
+
+    Raises:
+        HTTPException 429: Trop de tentatives depuis cette IP (rate-limit).
+        HTTPException 401: Identifiants incorrects.
+        HTTPException 403: Compte désactivé.
+        HTTPException 423: Compte temporairement verrouillé.
+    """
     ip = _get_client_ip(request)
 
-    # Rate limit: 10 attempts per minute per IP
+    # Limite de débit : 10 tentatives de connexion par minute par adresse IP
     if not check_rate_limit(f"login:{ip}", 10, 60):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -113,7 +155,7 @@ async def login(
     if not user or not verify_password(data.password, user.password_hash):
         if user:
             user.failed_login_attempts += 1
-            # Lock account after max attempts
+            # Verrouillage temporaire du compte après dépassement du seuil d'échecs
             if user.failed_login_attempts >= settings.max_failed_login_attempts:
                 user.locked_until = datetime.utcnow() + timedelta(
                     minutes=settings.account_lockout_minutes
@@ -130,7 +172,6 @@ async def login(
             detail="User account is disabled",
         )
 
-    # Check lockout
     if user.locked_until and user.locked_until > datetime.utcnow():
         remaining = int((user.locked_until - datetime.utcnow()).total_seconds() / 60) + 1
         raise HTTPException(
@@ -160,16 +201,14 @@ async def login(
             "mfa_bypass": True,
         })
 
-    # Generate and store OTP
+    # Génération du code OTP et stockage temporaire dans Redis (TTL = mfa_token_expire_minutes)
     otp_code = _generate_otp()
     otp_ttl = settings.mfa_token_expire_minutes * 60
     store_otp(str(user.id), otp_code, otp_ttl)
 
-    # Send OTP via Celery
     user_name = user.first_name or user.email.split("@")[0]
     send_otp_email_task.delay(user.email, otp_code, user_name)
 
-    # Create MFA pending token
     mfa_token = create_token(
         data={"sub": str(user.id)},
         token_type="mfa_pending",
@@ -184,11 +223,22 @@ async def verify_otp_endpoint(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Step 2: Verify OTP and return access + refresh tokens."""
+    """Étape 2 du flux MFA : valide l'OTP et retourne la paire de tokens JWT.
+
+    Args:
+        data: Token MFA issu de /login et code OTP reçu par e-mail.
+        request: Objet requête FastAPI (extraction IP/UA pour l'audit log).
+        db: Session de base de données synchrone.
+
+    Returns:
+        AuthTokens contenant access_token, refresh_token et le flag must_change_password.
+
+    Raises:
+        HTTPException 401: Token MFA invalide ou expiré, ou code OTP incorrect.
+    """
     ip = _get_client_ip(request)
     ua = request.headers.get("user-agent", "")
 
-    # Decode MFA token
     payload = decode_token(data.mfa_token, expected_type="mfa_pending")
     if not payload:
         raise HTTPException(
@@ -203,14 +253,12 @@ async def verify_otp_endpoint(
             detail="Invalid MFA token",
         )
 
-    # Verify OTP
     if not verify_otp(user_id, data.code):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired OTP code",
         )
 
-    # Get user
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
@@ -218,17 +266,16 @@ async def verify_otp_endpoint(
             detail="User not found",
         )
 
-    # Reset failed attempts, update last login
+    # Réinitialisation du compteur d'échecs et mise à jour de la date de dernière connexion
     user.failed_login_attempts = 0
     user.locked_until = None
     user.last_login = datetime.utcnow()
     db.commit()
 
-    # Create tokens
     access_token = create_token(data={"sub": str(user.id)}, token_type="access")
     refresh_token = create_token(data={"sub": str(user.id)}, token_type="refresh")
 
-    # Store refresh token in Redis
+    # Enregistrement du jti du refresh token dans Redis pour permettre la révocation ultérieure
     refresh_payload = decode_token(refresh_token)
     if refresh_payload and refresh_payload.get("jti"):
         store_refresh_token(
@@ -237,7 +284,6 @@ async def verify_otp_endpoint(
             settings.refresh_token_expire_days * 86400,
         )
 
-    # Audit log
     log_audit_event(
         db=db,
         action="login",
@@ -261,7 +307,19 @@ async def refresh_tokens(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Refresh access token using refresh token."""
+    """Renouvelle l'access token via le refresh token (rotation : l'ancien est révoqué).
+
+    Args:
+        data: Refresh token JWT valide.
+        request: Objet requête FastAPI (non utilisé directement, requis par signature).
+        db: Session de base de données synchrone.
+
+    Returns:
+        AuthTokens avec un nouvel access_token et un nouveau refresh_token.
+
+    Raises:
+        HTTPException 401: Token invalide, expiré ou déjà révoqué dans Redis.
+    """
     payload = decode_token(data.refresh_token, expected_type="refresh")
     if not payload:
         raise HTTPException(
@@ -284,14 +342,12 @@ async def refresh_tokens(
             detail="User not found or inactive",
         )
 
-    # Revoke old refresh token
+    # Révocation de l'ancien refresh token (politique de rotation à usage unique)
     revoke_refresh_token(jti)
 
-    # Create new tokens
     new_access = create_token(data={"sub": str(user.id)}, token_type="access")
     new_refresh = create_token(data={"sub": str(user.id)}, token_type="refresh")
 
-    # Store new refresh token
     new_payload = decode_token(new_refresh)
     if new_payload and new_payload.get("jti"):
         store_refresh_token(
@@ -309,11 +365,11 @@ async def logout(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Logout: blacklist access token and revoke refresh token."""
+    """Déconnecte l'utilisateur : inscrit l'access token sur liste noire Redis et révoque le refresh token."""
     ip = _get_client_ip(request)
     ua = request.headers.get("user-agent", "")
 
-    # Get token from header and blacklist it
+    # Inscription du jti de l'access token courant sur liste noire Redis pour invalider immédiatement la session
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
@@ -325,7 +381,6 @@ async def logout(
                 ttl = max(int(exp - datetime.utcnow().timestamp()), 0)
                 blacklist_token(jti, ttl + 60)
 
-    # Audit log
     log_audit_event(
         db=db,
         action="logout",
@@ -343,7 +398,7 @@ async def register(
     data: RegisterRequest,
     db: Session = Depends(get_db),
 ):
-    """Register a new user (creates VIEWER by default)."""
+    """Crée un nouveau compte utilisateur avec le rôle VIEWER par défaut."""
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
         raise HTTPException(
@@ -379,7 +434,11 @@ async def change_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Change password. Si must_change_password=True, current_password n'est pas requis."""
+    """Modifie le mot de passe de l'utilisateur connecté.
+
+    Si ``must_change_password`` est vrai (première connexion), l'ancien mot de passe
+    n'est pas vérifié afin de permettre la réinitialisation forcée.
+    """
     new_password = data.get("new_password", "")
     current_password = data.get("current_password", "")
 
@@ -403,7 +462,7 @@ async def change_password(
 async def get_me(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get current authenticated user."""
+    """Retourne le profil de l'utilisateur actuellement authentifié."""
     return UserResponse(
         id=str(current_user.id),
         email=current_user.email,

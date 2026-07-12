@@ -1,4 +1,10 @@
-# Module d'audit : analyse les ports en écoute et détecte les expositions réseau inattendues
+"""Module d'audit des ports réseau ouverts sur Linux.
+
+Analyse les ports en écoute via ``ss`` (ou ``netstat`` en fallback) et
+détecte les expositions non souhaitées : ports à risque élevé (Telnet,
+FTP, SMB…), ports inconnus exposés sur 0.0.0.0 et SSH sur toutes les
+interfaces. Référentiel : CIS Benchmark Linux v2.0 § 2.2.
+"""
 # Référentiel : CIS Benchmark Linux v2.0 — Section 2.2 + bonnes pratiques réseau
 
 # Ports toujours légitimes sur un serveur (whitelist de base)
@@ -67,6 +73,23 @@ def _parse_ss_output(output):
 
 
 def run_audit(ssh, rules):
+    """Audite les ports réseau en écoute sur la cible Linux.
+
+    Récupère la liste des ports ouverts, les compare aux listes de ports
+    légitimes et à risque, puis signale les expositions inattendues.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles ; clé reconnue — ``allowed_ports`` (ensemble de
+               chaînes de numéros de ports autorisés en plus de la whitelist
+               par défaut).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — ports à risque ouverts ou inconnus exposés.
+            passed   (list[dict]) — ports fermés ou conformes + inventaire.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
     allowed_ports = set(rules.get("allowed_ports", KNOWN_LEGITIMATE_PORTS.keys()))

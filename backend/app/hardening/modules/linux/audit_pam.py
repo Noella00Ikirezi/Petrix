@@ -1,4 +1,10 @@
-# Module d'audit : configuration PAM (Pluggable Authentication Module)
+"""Module d'audit de la configuration PAM (Pluggable Authentication Module) Linux.
+
+Vérifie les recommandations ANSSI-BP-028 v2.0 § 7.2.1 : sécurisation de
+l'authentification PAM et verrouillage de comptes (R68), robustesse du
+hachage des mots de passe (R69), séparation des bases utilisateurs locales
+et distantes LDAP/AD (R70).
+"""
 # Référentiel : ANSSI-BP-028 v2.0 — Section 7.2.1
 # Checks : R68 (authentification PAM), R69 (mots de passe stockés), R70 (bases utilisateur distantes)
 
@@ -242,6 +248,18 @@ def _r70_remote_user_bases(ssh):
 
 
 def run_audit(ssh, rules):
+    """Exécute l'audit PAM complet (authentification, hachage, annuaire).
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles (non utilisé pour ce module).
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — non-conformités PAM détectées.
+            passed   (list[dict]) — contrôles conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

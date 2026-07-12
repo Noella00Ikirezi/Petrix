@@ -1,4 +1,6 @@
-"""Dashboard endpoints - scoped by user role."""
+"""Endpoint unique du tableau de bord — agrège les métriques assets, vulnérabilités et hardening.
+Les sessions de hardening sont scopées au compte courant (sauf ADMIN) ; assets et vulnérabilités restent globaux.
+"""
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
@@ -26,11 +28,12 @@ router = APIRouter()
 
 
 def _is_admin(user: User) -> bool:
+    """Retourne True si l'utilisateur possède le rôle ADMIN."""
     return user.role == UserRole.ADMIN
 
 
 def _hs_base(db: Session, user: User):
-    """Base HardeningSession query — scoped to user unless admin."""
+    """Retourne la requête de base sur HardeningSession, restreinte au compte courant sauf pour un ADMIN."""
     q = db.query(HardeningSession)
     if not _is_admin(user):
         q = q.filter(HardeningSession.created_by_id == user.id)
@@ -38,6 +41,8 @@ def _hs_base(db: Session, user: User):
 
 
 class DashboardStats(BaseModel):
+    """Compteurs agrégés affichés dans la vue principale du tableau de bord."""
+
     total_assets: int
     active_assets: int
     total_vulnerabilities: int
@@ -52,6 +57,8 @@ class DashboardStats(BaseModel):
 
 
 class VulnTrend(BaseModel):
+    """Point de données journalier pour le graphique d'évolution des vulnérabilités (7 derniers jours)."""
+
     date: str
     critical: int
     high: int
@@ -60,6 +67,8 @@ class VulnTrend(BaseModel):
 
 
 class DashboardResponse(BaseModel):
+    """Réponse complète du tableau de bord : métriques agrégées, tendances, audits récents et contexte de scope."""
+
     stats: DashboardStats
     vuln_by_severity: dict
     vuln_by_status: dict
@@ -76,13 +85,7 @@ async def get_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_VIEW)),
 ):
-    """
-    Dashboard scoped by role:
-    - Admin: métriques globales (tous les comptes)
-    - Autres rôles: uniquement les données de l'utilisateur connecté
-    Assets et vulnérabilités restent globaux (pas de champ owner dans le modèle actuel).
-    Hardening sessions et targets sont scopés par created_by_id.
-    """
+    """Retourne les métriques du tableau de bord ; sessions de hardening scopées à l'utilisateur sauf pour un ADMIN — requiert ASSET_VIEW."""
     is_admin = _is_admin(current_user)
 
     # ── Assets (global — modèle sans owner) ──────────────────────────────────

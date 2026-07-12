@@ -1,5 +1,27 @@
-# Audit de la configuration SSH - macOS Silicon (Apple M-series)
+"""Module d'audit SSH pour macOS Apple Silicon (M-series, arm64).
+
+Identique au module Intel dans ses contrôles ; la séparation en sous-module
+permet d'y ajouter des vérifications spécifiques à l'architecture arm64
+(Secure Enclave, T2-équivalent Arm) lors d'itérations futures.
+"""
+
+
 def run_audit(ssh, rules):
+    """Audite la configuration sshd_config sur macOS Apple Silicon.
+
+    Args:
+        ssh: SSHConnector connecté à la cible.
+        rules: dict de règles ; clés reconnues — ``root_login``,
+               ``password_auth``, ``challenge_response_auth``,
+               ``pubkey_auth``, ``permit_empty_passwords``,
+               ``x11_forwarding``, ``max_auth_tries``.
+
+    Returns:
+        dict avec clés :
+            findings (list[dict]) — directives non conformes.
+            passed   (list[dict]) — directives conformes.
+            summary  (dict)       — total_checks, passed, failed.
+    """
     findings = []
     passed = []
 

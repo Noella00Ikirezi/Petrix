@@ -1,3 +1,8 @@
+/**
+ * Page d'aide et de support de la plateforme Petrix.
+ * Propose une FAQ interactive sur l'utilisation de l'application et un formulaire
+ * de signalement (bug, suggestion, vulnérabilité) par email via mailto.
+ */
 import { useState } from 'react';
 import {
   HelpCircle, ChevronDown, ChevronRight, Mail, GitBranch,
@@ -67,6 +72,10 @@ La remédiation recommandée est indiquée pour chaque port.`,
   },
 ];
 
+/**
+ * Entrée FAQ accordéon : affiche la question en titre et révèle la réponse au clic.
+ * @param item - Paire question/réponse issue du tableau FAQ.
+ */
 function FaqItem({ item }: { item: typeof FAQ[0] }) {
   const [open, setOpen] = useState(false);
   return (
@@ -91,6 +100,10 @@ function FaqItem({ item }: { item: typeof FAQ[0] }) {
 
 // ─── Signalement ──────────────────────────────────────────────────────────────
 
+/**
+ * Formulaire de signalement : construit un lien mailto préformaté avec le type
+ * (bug, feature, support, vulnérabilité) et le message, puis ouvre le client mail.
+ */
 function ReportForm() {
   const [type, setType] = useState('bug');
   const [msg, setMsg] = useState('');
@@ -160,6 +173,11 @@ const RESOURCES = [
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Page de support Petrix.
+ * Compose la FAQ accordéon, le formulaire de signalement par email et les liens utiles
+ * (documentation, GitLab, stack technique).
+ */
 export default function SupportPage() {
   return (
     <div className="space-y-8 pb-12">

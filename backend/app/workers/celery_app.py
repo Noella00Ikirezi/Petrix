@@ -1,4 +1,8 @@
-"""Celery application configuration for Petrix."""
+"""Configuration de l'application Celery pour Petrix.
+
+Initialise le broker Redis, déclare les queues de tâches (email, hardening)
+et applique les paramètres de sérialisation, de timezone et de time-limit.
+"""
 from celery import Celery
 
 from app.config import settings

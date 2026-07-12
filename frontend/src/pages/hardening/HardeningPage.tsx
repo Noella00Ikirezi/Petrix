@@ -1,3 +1,8 @@
+/**
+ * Page de durcissement HCO (Hardening Compliance Orchestrator).
+ * Trois onglets : Sessions (historique des audits importés), Référentiel (catalogue ANSSI-BP-028 / CIS),
+ * Fiches modules (commandes d'audit et remédiations par domaine). Intègre le chat IA Mistral.
+ */
 import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -209,6 +214,11 @@ const REF_NORM_LABELS: Record<string, string> = {
   windows: 'CIS WS2019',
 };
 
+/**
+ * Onglet Référentiel : tableau de bord des contrôles ANSSI-BP-028 / CIS avec filtres
+ * par OS (Linux / macOS / Windows), module et sévérité.
+ * Chaque ligne est expandable pour afficher le contexte et la norme associée.
+ */
 function ReferentielTab() {
   const [osFilter, setOsFilter] = useState<'all' | 'linux' | 'macos' | 'windows'>('linux');
   const [moduleFilter, setModuleFilter] = useState('');
@@ -380,6 +390,10 @@ const SOURCE_COLORS: Record<string, string> = {
   RFC:    'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
 };
 
+/**
+ * Barre de risque colorée (rouge → vert) selon le score de criticité d'un module.
+ * @param score - Score de risque de 0 à 100 (inversement proportionnel à la conformité).
+ */
 function RiskBar({ score }: { score: number }) {
   const color = score >= 80 ? 'bg-red-500' : score >= 60 ? 'bg-orange-400' : score >= 40 ? 'bg-yellow-400' : 'bg-green-500';
   const label = score >= 80 ? 'Risque critique' : score >= 60 ? 'Risque élevé' : score >= 40 ? 'Risque modéré' : 'Risque faible';
@@ -394,6 +408,12 @@ function RiskBar({ score }: { score: number }) {
   );
 }
 
+/**
+ * Fiche détaillée d'un module de durcissement : vecteurs d'attaque, commandes d'audit,
+ * étapes de remédiation et sources, avec filtre par OS et indicateur de findings actifs.
+ * @param mod - Métadonnées du module (depuis moduleKnowledge.ts).
+ * @param sessions - Sessions d'audit complétées pour détecter les findings associés.
+ */
 function FicheModule({ mod, sessions }: { mod: ModuleKnowledge; sessions: Session[] }) {
   const [section, setSection] = useState<'attacks' | 'audit' | 'fix' | 'sources' | null>('attacks');
   const [osFilter, setOsFilter] = useState<'linux' | 'macos' | 'windows' | 'all'>('linux');
@@ -600,6 +620,11 @@ function FicheModule({ mod, sessions }: { mod: ModuleKnowledge; sessions: Sessio
   );
 }
 
+/**
+ * Onglet Fiches modules : liste tous les modules de durcissement définis dans moduleKnowledge.ts
+ * avec indicateur de findings actifs basé sur les sessions passées en paramètre.
+ * @param sessions - Historique des sessions pour détecter les modules avec findings.
+ */
 function FichesTab({ sessions }: { sessions: Session[] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -759,6 +784,11 @@ function ImportXmlModal({ onClose, onImported }: { onClose: () => void; onImport
 
 // TargetModal et SessionModal supprimés — les systèmes sont gérés via /assets et les audits via agent local + import XML.
 
+/**
+ * Carte d'une session d'audit de durcissement : affiche le grade, le score, le résumé des findings
+ * par sévérité, et permet d'accéder au rapport détaillé et aux corrélations CERT-FR.
+ * @param session - Session de durcissement à afficher.
+ */
 function SessionCard({ session }: { session: Session }) {
   const [expanded, setExpanded] = useState(false);
   const [showCorr, setShowCorr] = useState(false);
@@ -966,6 +996,11 @@ function SessionCard({ session }: { session: Session }) {
   );
 }
 
+/**
+ * Page principale de durcissement HCO.
+ * Orchestre trois onglets (Fiches modules, Référentiel ANSSI, Sessions), charge les sessions
+ * et cibles via React Query, et expose le bouton d'import de rapport XML.
+ */
 export default function HardeningPage() {
   const [tab, setTab] = useState<'fiches' | 'referentiel' | 'sessions'>('fiches');
   const [showImportModal, setShowImportModal] = useState(false);
