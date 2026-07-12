@@ -1,11 +1,21 @@
-"""Hardening (HCO) API router — targets, sessions, findings."""
+"""Hardening (HCO) API router — targets, sessions, findings, import XML."""
+import asyncio
+import datetime
+import json
+import os
+import re
+import xml.etree.ElementTree as ET
 from typing import Optional
+from urllib.request import Request as UrlRequest, urlopen
+from urllib.error import URLError
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import get_current_user
+from app.api.v1.deps import get_current_user, require_permission
+from app.core.permissions import Permission, UserRole
 from app.infrastructure.database import get_db
 from app.infrastructure.database.models import User
 from app.infrastructure.database.hardening_models import (
@@ -15,8 +25,30 @@ from app.infrastructure.database.hardening_models import (
     HardeningFinding,
 )
 from app.hardening.engine import DEFAULT_MODULES_BY_OS, SUPPORTED_OS_TYPES
+from app.hardening.cve_mapping import get_cves_for_check
 
 router = APIRouter()
+
+
+# =============================================================================
+# Access control helpers
+# =============================================================================
+
+def _is_admin(user: User) -> bool:
+    return user.role == UserRole.ADMIN
+
+
+def _scope_query(query, model, user: User):
+    """Restrict a query to records owned by the user, unless admin."""
+    if not _is_admin(user):
+        return query.filter(model.created_by_id == user.id)
+    return query
+
+
+def _check_access(resource, user: User) -> None:
+    """Raise 403 if the resource is not owned by user and user is not admin."""
+    if not _is_admin(user) and resource.created_by_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
 
 # =============================================================================
@@ -25,14 +57,21 @@ router = APIRouter()
 
 class TargetCreate(BaseModel):
     name: str
-    host: str
-    port: int = 22
-    username: str = "root"
     os_type: str = "linux"
     description: Optional[str] = None
-    password: Optional[str] = None
-    key_path: Optional[str] = None
     tags: Optional[list[str]] = None
+
+
+class LatestSessionSummary(BaseModel):
+    session_id: str
+    status: str
+    score: Optional[float]
+    grade: Optional[str]
+    completed_at: Optional[str]
+    total_checks: int
+    passed_checks: int
+    total_findings: int
+    findings_summary: Optional[dict]
 
 
 class TargetResponse(BaseModel):
@@ -45,6 +84,8 @@ class TargetResponse(BaseModel):
     description: Optional[str]
     tags: Optional[list[str]]
     created_at: str
+    latest_session: Optional[LatestSessionSummary] = None
+    session_count: int = 0
 
     class Config:
         from_attributes = True
@@ -66,6 +107,7 @@ class FindingResponse(BaseModel):
     expected: str
     remediation: Optional[str]
     status: str
+    cve_ids: list[str] = []
 
 
 class SessionResponse(BaseModel):
@@ -73,6 +115,7 @@ class SessionResponse(BaseModel):
     target_id: str
     target_name: str
     target_host: str
+    target_os_type: Optional[str] = None
     status: str
     current_module: Optional[str]
     progress: int
@@ -90,11 +133,53 @@ class SessionResponse(BaseModel):
     duration_seconds: Optional[float]
 
 
+class FullReportResponse(BaseModel):
+    session: SessionResponse
+    findings: list[FindingResponse]
+    target_description: Optional[str] = None
+    target_tags: Optional[list[str]] = None
+    ai_analysis: Optional[dict] = None
+
+
+class AiChatRequest(BaseModel):
+    question: str
+
+
+class AiChatResponse(BaseModel):
+    answer: str
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
 
-def _target_to_response(t: HardeningTarget) -> TargetResponse:
+def _target_to_response(t: HardeningTarget, db: Optional[Session] = None) -> TargetResponse:
+    latest_session = None
+    session_count = 0
+
+    if db is not None:
+        session_count = db.query(HardeningSession).filter(
+            HardeningSession.target_id == t.id
+        ).count()
+        last = (
+            db.query(HardeningSession)
+            .filter(HardeningSession.target_id == t.id)
+            .order_by(HardeningSession.started_at.desc())
+            .first()
+        )
+        if last:
+            latest_session = LatestSessionSummary(
+                session_id=str(last.id),
+                status=last.status if isinstance(last.status, str) else last.status.value,
+                score=last.score,
+                grade=last.grade,
+                completed_at=last.completed_at.isoformat() if last.completed_at else None,
+                total_checks=last.total_checks or 0,
+                passed_checks=last.passed_checks or 0,
+                total_findings=last.total_findings or 0,
+                findings_summary=last.findings_summary,
+            )
+
     return TargetResponse(
         id=str(t.id),
         name=t.name,
@@ -105,6 +190,8 @@ def _target_to_response(t: HardeningTarget) -> TargetResponse:
         description=t.description,
         tags=t.tags or [],
         created_at=t.created_at.isoformat() if t.created_at else "",
+        latest_session=latest_session,
+        session_count=session_count,
     )
 
 
@@ -115,6 +202,7 @@ def _session_to_response(s: HardeningSession) -> SessionResponse:
         target_id=str(s.target_id),
         target_name=target.name if target else "",
         target_host=target.host if target else "",
+        target_os_type=target.os_type if target else None,
         status=s.status if isinstance(s.status, str) else s.status.value,
         current_module=s.current_module,
         progress=s.progress or 0,
@@ -146,15 +234,11 @@ def create_target(
     target = HardeningTarget(
         created_by_id=current_user.id,
         name=body.name,
-        host=body.host,
-        port=body.port,
-        username=body.username,
+        host=body.name,
+        port=0,
+        username="local",
         os_type=body.os_type,
         description=body.description,
-        credentials={
-            "password": body.password,
-            "key_path": body.key_path,
-        } if (body.password or body.key_path) else None,
         tags=body.tags,
     )
     db.add(target)
@@ -168,8 +252,9 @@ def list_targets(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    targets = db.query(HardeningTarget).order_by(HardeningTarget.created_at.desc()).all()
-    return [_target_to_response(t) for t in targets]
+    q = _scope_query(db.query(HardeningTarget), HardeningTarget, current_user)
+    targets = q.order_by(HardeningTarget.created_at.desc()).all()
+    return [_target_to_response(t, db) for t in targets]
 
 
 @router.get("/targets/{target_id}", response_model=TargetResponse)
@@ -181,7 +266,8 @@ def get_target(
     t = db.query(HardeningTarget).filter(HardeningTarget.id == target_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Target not found")
-    return _target_to_response(t)
+    _check_access(t, current_user)
+    return _target_to_response(t, db)
 
 
 @router.delete("/targets/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -193,6 +279,7 @@ def delete_target(
     t = db.query(HardeningTarget).filter(HardeningTarget.id == target_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Target not found")
+    _check_access(t, current_user)
     db.delete(t)
     db.commit()
 
@@ -201,33 +288,21 @@ def delete_target(
 # Sessions
 # =============================================================================
 
-@router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/sessions", status_code=status.HTTP_410_GONE)
 def create_session(
     body: SessionCreate,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    target = db.query(HardeningTarget).filter(HardeningTarget.id == body.target_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="Target not found")
-
-    default_mods = DEFAULT_MODULES_BY_OS.get(target.os_type, DEFAULT_MODULES_BY_OS["linux"])
-    session = HardeningSession(
-        target_id=target.id,
-        created_by_id=current_user.id,
-        status=HardeningSessionStatus.PENDING,
-        modules_requested=body.modules or default_mods,
-        progress=0,
+    """SSH-based audit sessions have been removed.
+    Use the local agent scripts and POST /import-xml instead."""
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Les audits SSH ont été supprimés. "
+            "Téléchargez l'agent local (GET /agent-script/{linux|macos|windows}) "
+            "et importez le rapport XML via POST /import-xml."
+        ),
     )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-
-    from app.workers.hardening_tasks import run_hardening_session
-
-    run_hardening_session.delay(str(session.id))
-
-    return _session_to_response(session)
 
 
 @router.get("/sessions", response_model=list[SessionResponse])
@@ -235,12 +310,8 @@ def list_sessions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    sessions = (
-        db.query(HardeningSession)
-        .order_by(HardeningSession.started_at.desc())
-        .limit(50)
-        .all()
-    )
+    q = _scope_query(db.query(HardeningSession), HardeningSession, current_user)
+    sessions = q.order_by(HardeningSession.started_at.desc()).limit(50).all()
     return [_session_to_response(s) for s in sessions]
 
 
@@ -253,6 +324,7 @@ def get_session(
     s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
+    _check_access(s, current_user)
     return _session_to_response(s)
 
 
@@ -265,6 +337,7 @@ def get_session_findings(
     s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
+    _check_access(s, current_user)
 
     findings = (
         db.query(HardeningFinding)
@@ -284,9 +357,538 @@ def get_session_findings(
             expected=f.expected,
             remediation=f.remediation,
             status=f.status,
+            cve_ids=get_cves_for_check(f.check_id),
         )
         for f in findings
     ]
+
+
+@router.get("/sessions/{session_id}/report", response_model=FullReportResponse)
+def get_full_report(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retourne la session complète + tous les findings pour la vue rapport."""
+    s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _check_access(s, current_user)
+
+    findings = (
+        db.query(HardeningFinding)
+        .filter(HardeningFinding.session_id == session_id)
+        .order_by(HardeningFinding.severity)
+        .all()
+    )
+    finding_list = [
+        FindingResponse(
+            id=str(f.id),
+            check_id=f.check_id,
+            check_name=f.check_name,
+            module=f.module,
+            description=f.description,
+            severity=f.severity,
+            found=f.found,
+            expected=f.expected,
+            remediation=f.remediation,
+            status=f.status,
+        )
+        for f in findings
+    ]
+    target = s.target
+    return FullReportResponse(
+        session=_session_to_response(s),
+        findings=finding_list,
+        target_description=target.description if target else None,
+        target_tags=target.tags if target else None,
+        ai_analysis=s.ai_analysis,
+    )
+
+
+# =============================================================================
+# AI Chat — Mistral (questions contextualisées sur une session)
+# =============================================================================
+
+def _mistral_chat(hostname: str, os_label: str, score: float, grade: str,
+                  findings: list, question: str) -> str:
+    """Répond à une question sur un audit en utilisant les findings comme contexte."""
+    api_key = os.environ.get("MISTRAL_API_KEY", "")
+    if not api_key:
+        return "L'analyse IA n'est pas disponible (clé API Mistral non configurée). Contactez votre administrateur."
+
+    fails = [f for f in findings if f.get("status") != "PASS"]
+    context_lines = [
+        f"- [{f.get('severity','?')}] {f.get('name','')}: trouvé={f.get('found','')}, attendu={f.get('expected','')}"
+        for f in findings[:30]
+    ]
+    context = "\n".join(context_lines)
+
+    prompt = f"""Tu es un expert en cybersécurité ANSSI-BP-028 intégré à la plateforme Petrix.
+Contexte de l'audit :
+  Système : {hostname} ({os_label}) — Score : {score}/100 — Grade : {grade}
+  {len(fails)} findings FAIL sur {len(findings)} contrôles totaux
+
+Findings principaux :
+{context}
+
+L'utilisateur pose cette question : {question}
+
+Réponds en français de manière claire, concise et pratique (maximum 300 mots).
+Si la question porte sur un finding spécifique, inclus la remédiation concrète."""
+
+    payload = json.dumps({
+        "model": "mistral-small-latest",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 500,
+        "temperature": 0.3,
+    }).encode("utf-8")
+
+    req = UrlRequest(
+        "https://api.mistral.ai/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return data["choices"][0]["message"]["content"].strip()
+    except (URLError, KeyError, json.JSONDecodeError) as e:
+        return f"L'analyse IA est temporairement indisponible. Réessayez dans quelques instants. ({type(e).__name__})"
+
+
+@router.post("/sessions/{session_id}/ai-chat", response_model=AiChatResponse)
+async def ai_chat(
+    session_id: str,
+    body: AiChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Pose une question sur un audit à l'IA Mistral (contexte : findings de la session)."""
+    if not body.question or not body.question.strip():
+        raise HTTPException(status_code=400, detail="La question ne peut pas être vide")
+    if len(body.question) > 500:
+        raise HTTPException(status_code=400, detail="Question trop longue (max 500 caractères)")
+
+    s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _check_access(s, current_user)
+
+    findings_db = (
+        db.query(HardeningFinding)
+        .filter(HardeningFinding.session_id == session_id)
+        .all()
+    )
+    findings_for_ai = [
+        {
+            "status":   f.status,
+            "severity": f.severity,
+            "name":     f.check_name,
+            "found":    f.found,
+            "expected": f.expected,
+        }
+        for f in findings_db
+    ]
+
+    target = s.target
+    hostname  = target.name if target else "inconnu"
+    os_label  = target.os_type if target else "unknown"
+
+    answer = await asyncio.to_thread(
+        _mistral_chat,
+        hostname, os_label,
+        s.score or 0, s.grade or "?",
+        findings_for_ai, body.question.strip()
+    )
+    return AiChatResponse(answer=answer)
+
+
+# =============================================================================
+# Analyse IA — Mistral
+# =============================================================================
+
+def _mistral_analyze(hostname: str, os_label: str, score: float, grade: str,
+                     findings: list) -> Optional[dict]:
+    """Appelle Mistral API pour analyser les findings et retourner une analyse structurée."""
+    api_key = os.environ.get("MISTRAL_API_KEY", "")
+    if not api_key:
+        return None
+
+    fails = [f for f in findings if f.get("status") != "PASS"]
+    if not fails:
+        return {
+            "resume_executif": f"Le système {hostname} présente une excellente posture de sécurité avec un score de {score}/100 (grade {grade}). Aucun écart de conformité détecté.",
+            "top_priorites": ["Maintenir ce niveau de conformité", "Planifier un re-audit dans 3 mois", "Documenter la configuration comme référence"],
+            "evaluation_anssi": "Conforme aux recommandations ANSSI-BP-028.",
+            "plan_remediation": "Aucune action corrective requise.",
+            "risque_global": "FAIBLE",
+        }
+
+    findings_text = "\n".join([
+        f"- [{f.get('severity','?')}] {f.get('name','')}: trouvé={f.get('found','')}, attendu={f.get('expected','')}"
+        for f in fails[:20]
+    ])
+
+    prompt = f"""Tu es un expert en cybersécurité ANSSI-BP-028. Analyse cet audit et réponds UNIQUEMENT en JSON valide, sans markdown, sans explication.
+
+Système: {hostname} ({os_label}) — Score: {score}/100 — Grade: {grade}
+Findings ({len(fails)} écarts):
+{findings_text}
+
+Réponds avec ce JSON exact:
+{{"resume_executif":"...","top_priorites":["action1","action2","action3"],"evaluation_anssi":"...","plan_remediation":"...","risque_global":"CRITIQUE|ÉLEVÉ|MODÉRÉ|FAIBLE"}}"""
+
+    payload = json.dumps({
+        "model": "mistral-small-latest",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 600,
+        "temperature": 0.2,
+    }).encode("utf-8")
+
+    req = UrlRequest(
+        "https://api.mistral.ai/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"].strip()
+        # Nettoyer si markdown ```json ... ```
+        content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.S).strip()
+        return json.loads(content)
+    except (URLError, KeyError, json.JSONDecodeError):
+        return None
+
+
+# =============================================================================
+# Import XML (rapport local Petrix Audit Agent)
+# =============================================================================
+
+def _txt(el: Optional[ET.Element], tag: str, default: str = "") -> str:
+    child = el.find(tag) if el is not None else None
+    return (child.text or default).strip() if child is not None else default
+
+
+@router.post("/import-xml", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+async def import_xml_report(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Importe un rapport XML généré par petrix_audit_local.py.
+    Crée automatiquement la cible et la session dans Petrix.
+    """
+    if not file.filename or not file.filename.endswith(".xml"):
+        raise HTTPException(status_code=400, detail="Fichier XML requis (.xml)")
+
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 5 Mo)")
+
+    try:
+        root = ET.fromstring(content.decode("utf-8", errors="replace"))
+    except ET.ParseError as exc:
+        raise HTTPException(status_code=422, detail=f"XML invalide : {exc}")
+
+    if root.tag != "PetrixAuditReport":
+        raise HTTPException(status_code=422, detail="Format non reconnu — utiliser petrix_audit_local.py")
+
+    # ── Métadonnées ──────────────────────────────────────────────────────────
+    meta      = root.find("Metadata")
+    hostname  = _txt(meta, "Hostname", "unknown")
+    os_label  = _txt(meta, "OS", "macOS")
+    os_type   = _txt(meta, "OSType", "macos_silicon")
+    arch      = _txt(meta, "Architecture", "arm64")
+    gen_date  = _txt(meta, "GenerationDate", "")
+    referential = root.attrib.get("Referential", "CIS_macOS_L1")
+
+    # ── Scores ───────────────────────────────────────────────────────────────
+    scores_el = root.find("Scores")
+    global_score = float(_txt(scores_el, "GlobalScore", "0"))
+    global_grade = _txt(scores_el, "GlobalGrade", "F")
+    total_checks  = int(_txt(scores_el, "TotalChecks", "0"))
+    passed_checks = int(_txt(scores_el, "PassedChecks", "0"))
+    crit_count    = int(_txt(scores_el, "CriticalCount", "0"))
+    high_count    = int(_txt(scores_el, "HighCount", "0"))
+    med_count     = int(_txt(scores_el, "MediumCount", "0"))
+    low_count     = int(_txt(scores_el, "LowCount", "0"))
+
+    findings_summary = {
+        "CRITICAL": crit_count,
+        "HIGH":     high_count,
+        "MEDIUM":   med_count,
+        "LOW":      low_count,
+    }
+
+    modules_completed = []
+    ms_el = scores_el.find("ModuleScores") if scores_el is not None else None
+    if ms_el is not None:
+        modules_completed = [m.attrib.get("name", "") for m in ms_el.findall("Module")]
+
+    # ── Findings ─────────────────────────────────────────────────────────────
+    findings_el = root.find("Findings")
+    raw_findings = findings_el.findall("Finding") if findings_el is not None else []
+    fail_count   = len([f for f in raw_findings if f.attrib.get("status") == "FAIL"])
+
+    # ── Trouver ou créer la cible (scoped au compte courant) ──────────────────
+    target = (
+        db.query(HardeningTarget)
+        .filter(
+            HardeningTarget.host == hostname,
+            HardeningTarget.os_type == os_type,
+            HardeningTarget.created_by_id == current_user.id,
+        )
+        .first()
+    )
+    if not target:
+        target = HardeningTarget(
+            created_by_id=current_user.id,
+            name=hostname,
+            host=hostname,
+            port=0,
+            username="local",
+            os_type=os_type,
+            description=f"Import XML local — {os_label} {arch} — {referential}",
+            tags=["xml-import", arch, referential],
+        )
+        db.add(target)
+        db.flush()
+
+    # ── Créer la session ──────────────────────────────────────────────────────
+    try:
+        completed_at = datetime.datetime.fromisoformat(gen_date) if gen_date else datetime.datetime.utcnow()
+    except ValueError:
+        completed_at = datetime.datetime.utcnow()
+
+    session = HardeningSession(
+        target_id=target.id,
+        created_by_id=current_user.id,
+        status=HardeningSessionStatus.COMPLETED,
+        progress=100,
+        modules_requested=modules_completed,
+        modules_completed=modules_completed,
+        score=global_score,
+        grade=global_grade,
+        findings_summary=findings_summary,
+        total_findings=fail_count,
+        total_checks=total_checks,
+        passed_checks=passed_checks,
+        started_at=completed_at,
+        completed_at=completed_at,
+    )
+    db.add(session)
+    db.flush()
+
+    # ── Créer les findings ────────────────────────────────────────────────────
+    sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+    for f_el in sorted(raw_findings, key=lambda x: sev_order.get(x.attrib.get("severity", "INFO"), 4)):
+        finding = HardeningFinding(
+            session_id=session.id,
+            check_id=f_el.attrib.get("id", ""),
+            check_name=_txt(f_el, "Name"),
+            module=f_el.attrib.get("module", ""),
+            description=_txt(f_el, "Context") or _txt(f_el, "Name"),
+            severity=f_el.attrib.get("severity", "MEDIUM"),
+            found=_txt(f_el, "Found"),
+            expected=_txt(f_el, "Expected"),
+            remediation=_txt(f_el, "Remediation"),
+            status=f_el.attrib.get("status", "FAIL"),
+        )
+        db.add(finding)
+
+    db.commit()
+    db.refresh(session)
+
+    # ── Analyse IA Mistral ────────────────────────────────────────────────────
+    findings_for_ai = [
+        {
+            "status":   f_el.attrib.get("status", "FAIL"),
+            "severity": f_el.attrib.get("severity", "MEDIUM"),
+            "name":     _txt(f_el, "Name"),
+            "found":    _txt(f_el, "Found"),
+            "expected": _txt(f_el, "Expected"),
+        }
+        for f_el in raw_findings
+    ]
+    ai = await asyncio.to_thread(_mistral_analyze, hostname, os_label, global_score, global_grade, findings_for_ai)
+    if ai:
+        session.ai_analysis = ai
+        db.commit()
+        db.refresh(session)
+
+    return _session_to_response(session)
+
+
+# =============================================================================
+# Agent scripts download
+# =============================================================================
+
+_AGENT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "hardening", "agents")
+
+_AGENT_FILES = {
+    "linux":   ("linux.sh",    "application/x-sh", "petrix_agent_linux.sh"),
+    "macos":   ("macos.sh",    "application/x-sh", "petrix_agent_macos.sh"),
+    "windows": ("windows.ps1", None,                "petrix_agent_windows.bat"),
+}
+
+# Batch/PS1 polyglot header — runs in CMD without ExecutionPolicy restriction.
+# CMD executes lines 1-3 then exits; PowerShell sees lines 1-3 as unreachable
+# because it jumps to the PS1 content after the #--PETRIX_PS1_START-- marker.
+_WINDOWS_BAT_HEADER = """\
+@echo off
+setlocal
+set "_pf=%~f0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$f=$env:_pf;$a=[IO.File]::ReadAllLines($f);$s=0;for($i=0;$i-lt$a.Count;$i++){if($a[$i]-eq'#--PETRIX_PS1_START--'){$s=$i+1;break}};$t=[IO.Path]::GetTempPath()+'petrix_'+[Guid]::NewGuid().ToString().Substring(0,8)+'.ps1';[IO.File]::WriteAllLines($t,$a[$s..($a.Count-1)]);& $t;Remove-Item $t -EA 0"
+endlocal & exit /b %ERRORLEVEL%
+#--PETRIX_PS1_START--
+"""
+
+
+@router.get("/agent-script/{os_type}")
+def download_agent_script(os_type: str):
+    """Telecharge le script d'audit local pour l'OS demande (linux, macos, windows). Public."""
+    entry = _AGENT_FILES.get(os_type.lower())
+    if not entry:
+        raise HTTPException(
+            status_code=404,
+            detail=f"OS non supporte : {os_type}. Valeurs acceptees : linux, macos, windows",
+        )
+    filename, media_type, download_name = entry
+    path = os.path.normpath(os.path.join(_AGENT_DIR, filename))
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Script d'agent introuvable sur le serveur")
+
+    if os_type.lower() == "windows":
+        ps1_content = open(path, encoding="ascii").read()
+        bat_content = (_WINDOWS_BAT_HEADER + ps1_content).encode("ascii")
+        return Response(
+            content=bat_content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+        )
+
+    return FileResponse(path, media_type=media_type, filename=download_name)
+
+
+# =============================================================================
+# CVE / CERT-FR correlation
+# =============================================================================
+
+# Keywords per module used to match CERT-FR alerts
+_MODULE_CERT_KW: dict[str, list[str]] = {
+    "ssh":        ["ssh", "openssh", "secure shell", "sftp"],
+    "firewall":   ["pare-feu", "firewall", "iptables", "nftables", "netfilter", " pf "],
+    "filesystem": ["chiffrement", "luks", "setuid", "permission", "droits", "privilege"],
+    "system":     ["noyau", "kernel", "linux", "sudo", "polkit", "systemd"],
+    "users":      ["authentification", "compte", "mot de passe", "password", "privilege", "ldap", "active directory"],
+    "services":   ["smb", "samba", "ftp", "telnet", "rpc", "nfs", "cifs", "vnc", "rdp", "mssql", "mysql", "postgresql"],
+    "updates":    ["mise à jour", "patch", "update", "paquet", "obsolète", "vulnérable"],
+    "network":    ["réseau", "network", "netbios", "llmnr", "mdns", "snmp", "arp"],
+    "packages":   ["paquet", "package", "dépôt", "repository", "apt", "yum", "dnf"],
+    "pam":        ["pam", "authentification", "mot de passe", "password", "kerberos"],
+    "logging":    ["journalisation", "audit", "log", "syslog", "auditd"],
+    "kernel":     ["noyau", "kernel", "sysctl", "aslr", "débordement", "buffer overflow"],
+    "winpolicies":["uac", "stratégie", "policy", "powershell", "windows defender", "applocker"],
+    "winlogging": ["event log", "journalisation", "windows", "security audit"],
+    "filevault":  ["chiffrement", "bitlocker", "filevault", "luks", "disk encryption"],
+}
+
+
+def _fetch_cert_fr_items() -> list[dict]:
+    """Fetch CERT-FR alerte + avis feeds and return combined items."""
+    from app.api.v1.feed import _fetch_rss
+    try:
+        alertes = _fetch_rss("alerte")["items"]
+    except Exception:
+        alertes = []
+    try:
+        avis = _fetch_rss("avis")["items"]
+    except Exception:
+        avis = []
+    return alertes + avis
+
+
+def _correlate_finding_to_cert(finding_module: str, check_name: str, cert_items: list[dict]) -> list[dict]:
+    """Return CERT-FR items matching a finding by keyword."""
+    kws = _MODULE_CERT_KW.get(finding_module, [])
+    # Also add significant words from the check name
+    name_words = [w.lower() for w in re.findall(r"[a-zA-ZÀ-ÿ]{4,}", check_name) if len(w) >= 4]
+    all_kws = kws + name_words
+    matched = []
+    for item in cert_items:
+        text = (item.get("title", "") + " " + item.get("summary", "")).lower()
+        if any(kw in text for kw in all_kws):
+            matched.append({
+                "cert_id":  item.get("cert_id", ""),
+                "title":    item.get("title", ""),
+                "link":     item.get("link", ""),
+                "severity": item.get("severity", "MEDIUM"),
+                "cves":     item.get("cves", []),
+                "published":item.get("published", ""),
+            })
+    return matched[:3]  # cap at 3 matches per finding
+
+
+@router.get("/sessions/{session_id}/cert-correlations")
+async def get_cert_correlations(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Pour une session donnée, retourne les findings FAIL correlés
+    avec les alertes/avis CERT-FR pertinents (matching par module et mots-clés).
+    """
+    s = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _check_access(s, current_user)
+
+    fail_findings = (
+        db.query(HardeningFinding)
+        .filter(
+            HardeningFinding.session_id == session_id,
+            HardeningFinding.status == "FAIL",
+        )
+        .order_by(HardeningFinding.severity)
+        .limit(40)
+        .all()
+    )
+
+    cert_items = await asyncio.to_thread(_fetch_cert_fr_items)
+
+    correlations = []
+    for f in fail_findings:
+        matched_alerts = _correlate_finding_to_cert(f.module, f.check_name, cert_items)
+        if matched_alerts:
+            correlations.append({
+                "finding_id":   str(f.id),
+                "check_id":     f.check_id,
+                "check_name":   f.check_name,
+                "module":       f.module,
+                "severity":     f.severity,
+                "cert_alerts":  matched_alerts,
+            })
+
+    return {
+        "session_id":    session_id,
+        "total_correlated": len(correlations),
+        "cert_items_fetched": len(cert_items),
+        "correlations":  correlations,
+    }
 
 
 # =============================================================================
@@ -299,13 +901,16 @@ def list_available_modules(current_user: User = Depends(get_current_user)):
         "supported_os": SUPPORTED_OS_TYPES,
         "modules_by_os": {
             "linux": [
-                {"id": "ssh",        "name": "SSH Configuration",  "description": "CIS Benchmark SSH hardening checks"},
-                {"id": "users",      "name": "User Accounts",      "description": "UID, password and shell audits"},
-                {"id": "kernel",     "name": "Kernel Parameters",  "description": "sysctl security settings (ASLR, SYN cookies…)"},
-                {"id": "firewall",   "name": "Firewall",           "description": "ufw / iptables / firewalld / nftables status"},
-                {"id": "services",   "name": "Services",           "description": "Dangerous/obsolete services detection"},
-                {"id": "filesystem", "name": "Filesystem",         "description": "Permissions et propriétaires des fichiers sensibles"},
-                {"id": "network",    "name": "Network",            "description": "Ports en écoute, exposition réseau, ports à risque"},
+                {"id": "ssh",        "name": "SSH Configuration",    "description": "[ANSSI R4-R5] Configuration du serveur SSH", "anssi_refs": ["R4", "R5"]},
+                {"id": "users",      "name": "Comptes utilisateurs", "description": "[ANSSI R30-R44] Comptes, sudo, politique de mots de passe", "anssi_refs": ["R30", "R31", "R32", "R33", "R34", "R36", "R37"]},
+                {"id": "kernel",     "name": "Paramètres noyau",     "description": "[ANSSI R8-R13] Paramètres sysctl de sécurité (ASLR, SYN cookies…)", "anssi_refs": ["R8", "R9", "R10", "R11", "R12", "R13"]},
+                {"id": "firewall",   "name": "Pare-feu",             "description": "[ANSSI R67] ufw / iptables / firewalld / nftables", "anssi_refs": ["R67"]},
+                {"id": "services",   "name": "Services",             "description": "[ANSSI R62-R66] Détection des services dangereux ou obsolètes", "anssi_refs": ["R62", "R63", "R66"]},
+                {"id": "filesystem", "name": "Système de fichiers",  "description": "[ANSSI R28-R57] Partitions, setuid/setgid, sticky bit, permissions", "anssi_refs": ["R28", "R29", "R49", "R52", "R53", "R54", "R56", "R57"]},
+                {"id": "network",    "name": "Réseau",               "description": "[ANSSI R12] Ports en écoute, exposition réseau", "anssi_refs": ["R12"]},
+                {"id": "packages",   "name": "Gestion des paquets",  "description": "[ANSSI R58-R61] Paquets inutiles, dépôts de confiance, mises à jour", "anssi_refs": ["R58", "R59", "R61"]},
+                {"id": "pam",        "name": "Authentification PAM", "description": "[ANSSI R68-R70] PAM, hachage des mots de passe, bases distantes", "anssi_refs": ["R68", "R69", "R70"]},
+                {"id": "logging",    "name": "Journalisation",       "description": "[ANSSI R71-R74] syslog, auditd, service mail, intégrité fichiers", "anssi_refs": ["R71", "R72", "R73", "R74"]},
             ],
             "macos_intel": [
                 {"id": "ssh",        "name": "SSH Configuration",  "description": "macOS Intel SSH hardening"},

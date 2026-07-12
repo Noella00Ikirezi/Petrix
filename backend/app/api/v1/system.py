@@ -85,13 +85,14 @@ async def health_check():
     No authentication required.
     """
     from app.infrastructure.database import SessionLocal
+    from sqlalchemy import text
     import redis
 
     # Check database
     db_status = "healthy"
     try:
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
     except Exception:
         db_status = "unhealthy"

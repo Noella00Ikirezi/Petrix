@@ -1,279 +1,302 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  Server,
-  Shield,
-  Scan,
-  ClipboardList,
-  ArrowRight,
-  Lock,
-  Globe,
-  Cpu,
-  LayoutDashboard,
-  Terminal,
-} from 'lucide-react';
-import { useAuthStore } from '@/stores/authStore';
 
-const modules = [
-  {
-    name: 'Gestion des actifs',
-    description: 'Inventaire de votre parc IT : serveurs, postes, équipements réseau. Suivi de la criticité et des vulnérabilités associées.',
-    icon: Server,
-    color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400',
-    img: 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?w=400&q=80',
-  },
-  {
-    name: 'Scanner de vulnérabilités',
-    description: 'Détection des failles avec scoring CVSS, tri par sévérité et suivi de remédiation.',
-    icon: Shield,
-    color: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
-    img: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=400&q=80',
-  },
-  {
-    name: 'Scans réseau',
-    description: 'Découverte d\'hôtes, scan de ports, analyse de services et détection de CVEs sur votre infrastructure.',
-    icon: Scan,
-    color: 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400',
-    img: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=400&q=80',
-  },
-  {
-    name: 'Hardening (HCO)',
-    description: 'Audit de durcissement par SSH : configurations système, politiques de mots de passe, services exposés.',
-    icon: Lock,
-    color: 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400',
-    img: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&q=80',
-  },
-  {
-    name: 'Agent terrain',
-    description: 'Déployez un agent léger (Windows/Linux/macOS) pour scanner les réseaux internes sans exposition directe.',
-    icon: Terminal,
-    color: 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/40 dark:text-cyan-400',
-    img: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=400&q=80',
-  },
-  {
-    name: 'Journaux d\'audit',
-    description: 'Traçabilité complète de toutes les actions utilisateurs pour la conformité réglementaire.',
-    icon: ClipboardList,
-    color: 'bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400',
-    img: 'https://images.unsplash.com/photo-1555255707-c07966088b7b?w=400&q=80',
-  },
-];
+/* ── CSS landing page ───────────────────────────────────────────────────── */
+const CSS = `
+.hp-page{overflow-x:hidden;width:100%}
+.hp-wrap{max-width:1280px;margin:0 auto;padding:0 clamp(16px,3vw,40px);box-sizing:border-box}
+canvas.w3d{display:block;width:100%;height:100%}
 
-const values = [
-  {
-    icon: Lock,
-    title: 'Souveraineté numérique',
-    description: 'Aucune dépendance cloud externe. Vos données restent sur votre infrastructure, sous votre contrôle total.',
-  },
-  {
-    icon: Cpu,
-    title: 'Automatisation poussée',
-    description: 'Scans, hardening, scoring de risques : tout est automatisé pour réduire la charge opérationnelle.',
-  },
-  {
-    icon: Globe,
-    title: 'Open Source',
-    description: 'Code source ouvert, auditable et personnalisable. Adaptez Petrix à vos contraintes.',
-  },
-];
+/* Nav */
+.hp-nav{position:sticky;top:0;z-index:50;background:var(--panel);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.hp-nav .hp-wrap{display:flex;align-items:center;justify-content:space-between;height:56px;gap:16px}
+.hp-logo{font-family:var(--font-display);font-size:14px;letter-spacing:.1em;color:var(--text);flex-shrink:0}
+.hp-logo .l{color:var(--lime)}
+.nav-cta{font-size:11px;letter-spacing:.2em;color:var(--text);transition:color .15s;flex-shrink:0;white-space:nowrap;text-transform:uppercase}
+.nav-cta:hover{color:var(--lime)}
 
+/* Hero */
+.hero{padding:clamp(56px,9vw,96px) 0 48px;position:relative}
+.hero .built{font-size:10px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;border:1px solid var(--line);padding:7px 14px;display:inline-block;margin-bottom:20px}
+.hero .built::before{content:'● ';color:var(--lime)}
+.hero h1{font-family:var(--font-display);font-size:clamp(36px,7vw,100px);margin:12px 0 20px;color:var(--text);line-height:1.05;font-weight:400}
+.hero h1 .l{color:var(--lime)}
+.hero>div>p.sub{max-width:520px;color:var(--dim);font-size:clamp(13px,1.2vw,14px);line-height:1.7}
+.hero-bar{margin-top:40px;display:grid;grid-template-columns:1fr 1fr 1fr auto;border:1px solid var(--line);align-items:center}
+.hero-bar .cell{padding:clamp(12px,2vw,18px) clamp(14px,2vw,24px);font-size:11px;border-right:1px solid var(--line);min-width:0;overflow:hidden}
+.hero-bar .cell .k{color:var(--faint);letter-spacing:.15em;text-transform:uppercase;font-size:10px;display:block;margin-bottom:4px}
+.hero-bar .cell .v{color:var(--lime);font-size:11px;word-break:break-word}
+.hero-bar .cta-cell{display:flex;justify-content:flex-end;padding:8px;flex-shrink:0}
+
+/* Section header */
+.sec-head{display:grid;grid-template-columns:minmax(160px,260px) 1fr auto;border:1px solid var(--line);border-bottom:none}
+.sec-head>div{padding:14px 18px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);min-width:0;overflow:hidden}
+.sec-head>div+div{border-left:1px solid var(--line)}
+.sec-head .n::before{content:'// '}
+
+/* Modules */
+.modules-grid{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line)}
+.mod{border-right:1px solid var(--line);position:relative;cursor:pointer;min-width:0}
+.mod:last-child{border-right:none}
+.mod .viz{height:clamp(200px,26vw,320px);opacity:.14;transition:opacity .4s ease}
+.mod:hover .viz,.mod.active .viz{opacity:1}
+.mod .meta{border-top:1px solid var(--line);padding:14px 18px 10px;transition:background .3s}
+.mod:hover .meta,.mod.active .meta{background:var(--panel-hi)}
+.mod .idx{font-size:10px;letter-spacing:.2em;color:var(--faint);text-transform:uppercase}
+.mod:hover .idx,.mod.active .idx{color:var(--lime)}
+.mod h3{font-family:var(--font-display);font-weight:400;font-size:clamp(12px,1.2vw,14px);letter-spacing:.05em;margin-top:6px;text-transform:uppercase;color:var(--text)}
+.mod:hover h3,.mod.active h3{color:var(--lime)}
+.mod .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;border-top:1px solid var(--line);padding:8px 18px;font-size:10px;letter-spacing:.15em;color:var(--faint);text-transform:uppercase}
+
+/* Stat strip */
+.stat-strip{border:1px solid var(--line);border-top:none;display:grid;grid-template-columns:repeat(4,1fr) auto}
+.stat-strip .sc{padding:clamp(14px,2vw,22px) clamp(16px,2vw,28px);border-right:1px solid var(--line);text-align:center}
+.stat-strip .sc .v{font-family:var(--font-display);font-size:clamp(18px,2.2vw,26px);color:var(--lime)}
+.stat-strip .sc .k{font-size:9px;letter-spacing:.2em;color:var(--faint);text-transform:uppercase;margin-top:4px}
+.stat-strip .launch{background:var(--lime);color:var(--bg);display:flex;align-items:center;justify-content:center;font-size:clamp(10px,1.1vw,12px);letter-spacing:.2em;text-transform:uppercase;cursor:pointer;font-family:var(--font-mono);transition:filter .15s;padding:0 clamp(16px,3vw,40px);white-space:nowrap}
+.stat-strip .launch:hover{filter:brightness(1.12)}
+
+/* Footer */
+footer.hp-footer{border-top:1px solid var(--line);margin-top:clamp(32px,5vw,64px)}
+.foot-bottom{display:grid;grid-template-columns:1fr auto auto;align-items:stretch;border-bottom:1px solid var(--line)}
+.foot-bottom .fc{padding:16px clamp(16px,2vw,24px);font-size:10px;letter-spacing:.15em;color:var(--faint);text-transform:uppercase}
+.foot-bottom .fc::before{content:'// '}
+.foot-bottom .credit{background:var(--lime);color:var(--bg);display:flex;align-items:center;padding:0 clamp(14px,2.5vw,32px);font-size:11px;letter-spacing:.2em;text-transform:uppercase;white-space:nowrap}
+.foot-links{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:14px clamp(16px,3vw,24px);font-size:10px;letter-spacing:.15em;color:var(--faint);text-transform:uppercase}
+.foot-links a{color:var(--faint);transition:color .15s}
+.foot-links a:hover{color:var(--lime)}
+.foot-links .grp{display:flex;gap:clamp(12px,2vw,24px);flex-wrap:wrap}
+
+/* Reveal */
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .5s ease,transform .5s ease}
+.reveal.in{opacity:1;transform:none}
+
+/* ── Breakpoints ── */
+@media(max-width:1200px){
+  .modules-grid{grid-template-columns:1fr 1fr}
+  .mod:nth-child(2){border-right:none}
+  .mod:nth-child(3){border-right:none;border-top:1px solid var(--line)}
+  .hero-bar{grid-template-columns:1fr 1fr}
+  .hero-bar .cell:nth-child(3){border-right:none}
+  .hero-bar .cta-cell{grid-column:1/-1;border-top:1px solid var(--line);justify-content:flex-start}
+  .stat-strip{grid-template-columns:1fr 1fr}
+  .stat-strip .sc:nth-child(2){border-right:none}
+  .stat-strip .sc:nth-child(3){border-top:1px solid var(--line)}
+  .stat-strip .launch{grid-column:1/-1;padding:18px;border-top:1px solid var(--line)}
+}
+@media(max-width:768px){
+  .modules-grid{grid-template-columns:1fr}
+  .mod{border-right:none;border-bottom:1px solid var(--line)}
+  .mod:last-child{border-bottom:none}
+  .mod .viz{opacity:1;height:200px}
+  .mod:nth-child(3){border-top:none}
+  .hero-bar{grid-template-columns:1fr}
+  .hero-bar .cell{border-right:none;border-bottom:1px solid var(--line)}
+  .hero-bar .cta-cell{grid-column:auto;border-top:none}
+  .sec-head{grid-template-columns:1fr}
+  .sec-head>div+div{border-left:none;border-top:1px solid var(--line)}
+  .foot-bottom{grid-template-columns:1fr}
+  .foot-bottom .credit{display:none}
+}
+@media(max-width:480px){
+  .hero-bar .cta-cell .btn{width:100%;justify-content:center}
+}
+`;
+
+/* ── Moteur 3D ───────────────────────────────────────────────────────────── */
+function run3D() {
+  const LIME = getComputedStyle(document.documentElement).getPropertyValue('--lime').trim() || '#60a5fa';
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function vnorm(p: number[]): number[] { const l = Math.hypot(p[0], p[1], p[2]); return [p[0]/l, p[1]/l, p[2]/l]; }
+  function d3(a: number[], b: number[]): number { return Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]); }
+  function shapeIco() {
+    const t=(1+Math.sqrt(5))/2;
+    const raw=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]];
+    const v=raw.map(vnorm);const edges:number[][]=[];let min=Infinity;
+    for(let i=0;i<v.length;i++)for(let j=i+1;j<v.length;j++){const dd=d3(v[i],v[j]);if(dd<min)min=dd;}
+    for(let i=0;i<v.length;i++)for(let j=i+1;j<v.length;j++){if(d3(v[i],v[j])<min*1.05)edges.push([i,j]);}
+    return {verts:v,edges,dots:true,lw:1};
+  }
+  function shapeRings(){const polys:number[][][]=[];[1,.76,.52,.3].forEach(r=>{const pts:number[][]=[];for(let a=0;a<=56;a++){const ang=a/56*Math.PI*2;pts.push([Math.cos(ang)*r,Math.sin(ang)*r,0]);}polys.push(pts);});return{polys,lw:5,dash:[2,6],baseTilt:-0.9};}
+  function shapeStack(){const verts:number[][]=[];const edges:number[][]=[];for(let k=0;k<4;k++){const y=.72-k*.48,s=.5+k*.16,b=verts.length;verts.push([-s,y,-s*.55],[s,y,-s*.55],[s,y,s*.55],[-s,y,s*.55]);edges.push([b,b+1],[b+1,b+2],[b+2,b+3],[b+3,b]);if(k>0)edges.push([b,b-4],[b+2,b-2]);}return{verts,edges,lw:1,dots:false};}
+  const SHAPES:Record<string,()=>any>={ico:shapeIco,rings:shapeRings,stack:shapeStack};
+  type Item={cv:HTMLCanvasElement;ctx:CanvasRenderingContext2D;shape:any;ry:number;rx:number;vy:number;vx:number;hoverTX:number;hoverTY:number;curTX:number;curTY:number;auto:number;drag:boolean;lastX:number;lastY:number;dpr:number};
+  const items:Item[]=[];
+  document.querySelectorAll<HTMLCanvasElement>('canvas.w3d').forEach(cv=>{
+    const kind=cv.getAttribute('data-shape')||'ico';
+    const shape=(SHAPES[kind]||shapeIco)();
+    const ctx=cv.getContext('2d')!;
+    const st:Item={cv,ctx,shape,ry:Math.random()*6,rx:shape.baseTilt??-0.35,vy:0,vx:0,hoverTX:0,hoverTY:0,curTX:0,curTY:0,auto:reduced?0:.006,drag:false,lastX:0,lastY:0,dpr:1};
+    items.push(st);
+    cv.addEventListener('mousemove',ev=>{if(st.drag){st.vy=(ev.clientX-st.lastX)*.008;st.vx=(ev.clientY-st.lastY)*.008;st.ry+=st.vy;st.rx+=st.vx;st.lastX=ev.clientX;st.lastY=ev.clientY;}else{const r=cv.getBoundingClientRect();st.hoverTY=((ev.clientX-r.left)/r.width-.5)*.9;st.hoverTX=((ev.clientY-r.top)/r.height-.5)*.7;}});
+    cv.addEventListener('mouseleave',()=>{st.hoverTX=0;st.hoverTY=0;st.drag=false;});
+    cv.addEventListener('mousedown',ev=>{st.drag=true;st.lastX=ev.clientX;st.lastY=ev.clientY;ev.preventDefault();});
+    window.addEventListener('mouseup',()=>{st.drag=false;});
+  });
+  function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);items.forEach(st=>{const w=st.cv.clientWidth,h=st.cv.clientHeight;if(w&&h){st.cv.width=w*dpr;st.cv.height=h*dpr;st.dpr=dpr;}});}
+  window.addEventListener('resize',resize);resize();
+  function project(p:number[],rx:number,ry:number,cx:number,cy:number,scale:number):number[]{
+    const cy2=Math.cos(ry),sy=Math.sin(ry),cx2=Math.cos(rx),sx=Math.sin(rx);
+    const x=p[0]*cy2+p[2]*sy;let z=-p[0]*sy+p[2]*cy2;
+    const y=p[1]*cx2-z*sx;z=p[1]*sx+z*cx2;
+    const f=3.4,persp=f/(f-z);
+    return[cx+x*scale*persp,cy+y*scale*persp,persp];
+  }
+  function draw(st:Item){
+    const{ctx,cv}=st;if(!cv.width)return;
+    const w=cv.width,h=cv.height,cx=w/2,cy=h/2,scale=Math.min(w,h)*.33;
+    ctx.clearRect(0,0,w,h);
+    ctx.strokeStyle=LIME;ctx.fillStyle=LIME;ctx.globalAlpha=.8;
+    ctx.lineWidth=(st.shape.lw||1)*st.dpr;
+    ctx.setLineDash(st.shape.dash?st.shape.dash.map((x:number)=>x*st.dpr):[]);
+    const rx=st.rx+st.curTX,ry=st.ry+st.curTY;
+    if(st.shape.polys){st.shape.polys.forEach((poly:number[][])=>{ctx.beginPath();poly.forEach((pt,i)=>{const q=project(pt,rx,ry,cx,cy,scale);if(i===0)ctx.moveTo(q[0],q[1]);else ctx.lineTo(q[0],q[1]);});ctx.stroke();});}
+    if(st.shape.verts){const pts=st.shape.verts.map((p:number[])=>project(p,rx,ry,cx,cy,scale));ctx.beginPath();st.shape.edges.forEach((e:number[])=>{ctx.moveTo(pts[e[0]][0],pts[e[0]][1]);ctx.lineTo(pts[e[1]][0],pts[e[1]][1]);});ctx.stroke();if(st.shape.dots)pts.forEach((q:number[])=>{ctx.beginPath();ctx.arc(q[0],q[1],3.4*st.dpr*q[2],0,Math.PI*2);ctx.fill();});}
+    ctx.globalAlpha=1;
+  }
+  function loop(){
+    items.forEach(st=>{
+      st.ry+=st.auto+(st.drag?0:st.vy);st.rx+=st.drag?0:st.vx;
+      st.vy*=.95;st.vx*=.95;
+      const base=st.shape.baseTilt??-.35;
+      if(st.rx>base+1.2)st.rx=base+1.2;if(st.rx<base-1.2)st.rx=base-1.2;
+      st.curTX+=(st.hoverTX-st.curTX)*.08;st.curTY+=(st.hoverTY-st.curTY)*.08;
+      draw(st);
+    });
+    if(!reduced)requestAnimationFrame(loop);
+  }
+  if(reduced)items.forEach(draw);else requestAnimationFrame(loop);
+}
+
+/* ── Composant principal ─────────────────────────────────────────────────── */
 export default function HomePage() {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }),
+      { threshold: .12 }
+    );
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+    const mods = document.querySelectorAll('.mod');
+    const offs: Array<() => void> = [];
+    mods.forEach(m => {
+      const h = () => { mods.forEach(x => x.classList.remove('active')); m.classList.add('active'); };
+      m.addEventListener('mouseenter', h);
+      offs.push(() => m.removeEventListener('mouseenter', h));
+    });
+
+    run3D();
+    return () => { io.disconnect(); offs.forEach(f => f()); };
+  }, []);
 
   return (
-    <div className="min-h-screen bg-petrix-white dark:bg-petrix-void">
+    <div className="hp-page">
+      <style>{CSS}</style>
 
-      {/* Navigation */}
-      <nav className="border-b border-gray-200 dark:border-gray-800">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <img src="/logo-petrix.svg" alt="Petrix" className="h-9 w-9 dark:hidden" />
-            <img src="/logo-petrix-dark.svg" alt="Petrix" className="hidden h-9 w-9 dark:block" />
-            <span className="text-xl font-bold text-petrix-void dark:text-petrix-cyan-light">Petrix</span>
-          </div>
-          <div className="flex items-center gap-3">
-            {isAuthenticated ? (
-              <Link to="/dashboard" className="btn btn-primary btn-md">
-                <LayoutDashboard className="mr-2 h-4 w-4" />
-                Dashboard
-              </Link>
-            ) : (
-              <>
-                <Link to="/login" className="btn btn-secondary btn-md">Connexion</Link>
-                <Link to="/signup" className="btn btn-primary btn-md">Créer un compte</Link>
-              </>
-            )}
-          </div>
+      {/* ── Nav ── */}
+      <nav className="hp-nav">
+        <div className="hp-wrap">
+          <span className="hp-logo">&lt;PETRIX <span className="l">/&gt;</span></span>
+          <Link to="/login" className="nav-cta">
+            () =&gt; <span style={{ color: 'var(--lime)' }}>CONNEXION</span>
+          </Link>
         </div>
       </nav>
 
-      {/* Hero — photo plein écran + overlay */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0">
-          <img
-            src="https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=1920&q=80"
-            alt="Salle de serveurs"
-            className="h-full w-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-gray-950/80 via-gray-950/70 to-gray-950" />
-        </div>
-        <div className="relative mx-auto max-w-3xl px-6 py-28 text-center">
-          <div className="mb-6 inline-flex items-center rounded-full border border-primary-500/40 bg-primary-900/30 px-4 py-1.5 text-sm font-medium text-primary-300">
-            Open Source · Self-Hosted · Souverain
-          </div>
-          <h1 className="text-5xl font-bold tracking-tight text-white">
-            Plateforme d'audit
-            <br />
-            <span className="text-primary-400">cybersécurité</span>
-          </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-300">
-            Gérez vos actifs, scannez vos réseaux, détectez les vulnérabilités
-            et auditez le durcissement de vos systèmes — le tout depuis une seule plateforme,
-            hébergée sur votre infrastructure.
+      {/* ── Hero ── */}
+      <header className="hero">
+        <div className="hp-wrap">
+          <span className="built">Self-hosted · ANSSI-BP-028 · Mistral AI</span>
+          <h1>&lt;PETRIX <span className="l">/&gt;</span></h1>
+          <p className="sub">
+            Plateforme d'audit cybersécurité auto-hébergée — inventaire d'actifs,
+            veille CVE CERT-FR, durcissement ANSSI, analyse&nbsp;
+            <strong style={{ color: 'var(--lime)', fontWeight: 600 }}>Mistral AI</strong>.
+            Vos données restent chez vous.
           </p>
-          <div className="mt-10 flex items-center justify-center gap-4">
-            {isAuthenticated ? (
-              <Link to="/dashboard" className="btn btn-primary btn-lg">
-                Accéder au Dashboard
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Link>
-            ) : (
-              <>
-                <Link to="/signup" className="btn btn-primary btn-lg">
-                  Commencer
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Link>
-                <a href="#modules" className="btn btn-secondary btn-lg">
-                  Découvrir les modules
-                </a>
-              </>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* Bande de stats */}
-      <div className="border-y border-gray-800 bg-gray-900">
-        <div className="mx-auto grid max-w-6xl grid-cols-3 divide-x divide-gray-800 px-6">
-          {[
-            { label: 'Types de scans', value: '5' },
-            { label: 'OS supportés (Hardening)', value: 'Linux · macOS · Windows' },
-            { label: 'Sources CVE', value: 'NVD · CIRCL' },
-          ].map((s) => (
-            <div key={s.label} className="px-8 py-6 text-center">
-              <div className="text-2xl font-bold text-white">{s.value}</div>
-              <div className="mt-1 text-sm text-gray-400">{s.label}</div>
+          <div className="hero-bar reveal">
+            <div className="cell">
+              <span className="k">Stack</span>
+              <span className="v">FastAPI · React · PostgreSQL · Celery</span>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Modules — cartes avec photo */}
-      <section id="modules" className="bg-gray-950 px-6 py-20">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold text-white">Modules disponibles</h2>
-            <p className="mt-3 text-gray-400">Tout ce dont vous avez besoin pour auditer et sécuriser votre SI.</p>
-          </div>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {modules.map((mod) => (
-              <div
-                key={mod.name}
-                className="group overflow-hidden rounded-xl border border-gray-800 bg-gray-900 transition-all hover:border-primary-700 hover:shadow-lg hover:shadow-primary-900/20"
-              >
-                <div className="relative h-40 overflow-hidden">
-                  <img
-                    src={mod.img}
-                    alt={mod.name}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/60 to-transparent" />
-                  <div className={`absolute bottom-3 left-3 inline-flex rounded-lg p-2 ${mod.color}`}>
-                    <mod.icon className="h-5 w-5" />
-                  </div>
-                </div>
-                <div className="p-5">
-                  <h3 className="mb-2 text-base font-semibold text-white">{mod.name}</h3>
-                  <p className="text-sm leading-relaxed text-gray-400">{mod.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Laptop mockup — photo réelle */}
-      <section className="relative overflow-hidden bg-gray-950 px-6 py-20">
-        <div className="mx-auto flex max-w-6xl flex-col items-center gap-12 lg:flex-row">
-          <div className="flex-1">
-            <h2 className="text-3xl font-bold text-white">
-              Conçu pour les équipes sécurité
-            </h2>
-            <p className="mt-4 text-gray-400 leading-relaxed">
-              Interface web claire et rapide, accessible depuis n'importe quel navigateur.
-              Vos résultats de scan, vos actifs et vos rapports de conformité en un seul endroit.
-            </p>
-            <ul className="mt-6 space-y-3 text-sm text-gray-300">
-              {[
-                'Scans en temps réel avec suivi de progression',
-                'Scoring automatique CVSS et grade de risque',
-                'Audit SSH hardening en un clic',
-                'Veille CVE directement depuis NVD/NIST',
-                'Agent déployable sur Windows, Linux et macOS',
-              ].map((item) => (
-                <li key={item} className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary-400 flex-shrink-0" />
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="flex-1">
-            <div className="overflow-hidden rounded-2xl border border-gray-700 shadow-2xl shadow-primary-900/20">
-              <img
-                src="https://images.unsplash.com/photo-1484557985045-edf25e08da73?auto=format&fit=crop&w=900&q=80"
-                alt="Terminal cybersécurité"
-                className="w-full object-cover"
-                loading="lazy"
-              />
+            <div className="cell">
+              <span className="k">OS supportés</span>
+              <span className="v">Linux · macOS · Windows</span>
+            </div>
+            <div className="cell">
+              <span className="k">Contrôles ANSSI</span>
+              <span className="v">80+ checks · Grade A–F</span>
+            </div>
+            <div className="cta-cell">
+              <Link to="/login" className="btn">ACCÉDER →</Link>
             </div>
           </div>
         </div>
-      </section>
+      </header>
 
-      {/* Valeurs */}
-      <section className="border-t border-gray-800 bg-gray-900 px-6 py-20">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold text-white">Notre approche</h2>
-            <p className="mt-3 text-gray-400">Une cybersécurité maîtrisée, sans compromis.</p>
+      {/* ── Modules ── */}
+      <section className="hp-wrap reveal">
+        <div className="sec-head">
+          <div className="n">01 · modules</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--text)', letterSpacing: '.04em' }}>
+            IMPORT &#123; <span style={{ color: 'var(--lime)' }}>CORE</span> &#125; FROM <span style={{ color: 'var(--lime)' }}>"./PETRIX"</span>
           </div>
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
-            {values.map((val) => (
-              <div key={val.title} className="text-center">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-900/40 ring-1 ring-primary-700/50">
-                  <val.icon className="h-7 w-7 text-primary-400" />
-                </div>
-                <h3 className="mb-2 text-lg font-semibold text-white">{val.title}</h3>
-                <p className="text-sm leading-relaxed text-gray-400">{val.description}</p>
-              </div>
-            ))}
-          </div>
+          <div>3 MODULES ACTIFS</div>
+        </div>
+        <div className="modules-grid">
+          <article className="mod active">
+            <div className="viz"><canvas className="w3d" data-shape="stack" /></div>
+            <div className="meta">
+              <div className="idx">Modules[01]</div>
+              <h3>Inventaire des actifs</h3>
+            </div>
+            <div className="foot"><span>Cibles SSH · Linux · macOS · Windows</span><span>LIVE</span></div>
+          </article>
+          <article className="mod">
+            <div className="viz"><canvas className="w3d" data-shape="rings" /></div>
+            <div className="meta">
+              <div className="idx">Modules[02]</div>
+              <h3>Veille CVE &amp; CERT-FR</h3>
+            </div>
+            <div className="foot"><span>Alertes temps réel · Corrélations CVE</span><span>LIVE</span></div>
+          </article>
+          <article className="mod">
+            <div className="viz"><canvas className="w3d" data-shape="ico" /></div>
+            <div className="meta">
+              <div className="idx">Modules[03]</div>
+              <h3>Durcissement HCO</h3>
+            </div>
+            <div className="foot"><span>ANSSI-BP-028 · Rapport IA Mistral</span><span>LIVE</span></div>
+          </article>
+        </div>
+
+        {/* Stat strip + CTA final */}
+        <div className="stat-strip reveal">
+          <div className="sc"><div className="v">80+</div><div className="k">Contrôles ANSSI</div></div>
+          <div className="sc"><div className="v">3</div><div className="k">OS</div></div>
+          <div className="sc"><div className="v">4</div><div className="k">Rôles RBAC</div></div>
+          <div className="sc"><div className="v">A–F</div><div className="k">Grade ANSSI</div></div>
+          <Link to="/login" className="launch">LANCER L'APPLICATION →</Link>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-800 bg-gray-950 px-6 py-8">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img src="/logo-petrix-dark.svg" alt="Petrix" className="h-6 w-6" />
-            <span className="text-sm font-medium text-gray-500">Petrix v0.1.0 — Open Source</span>
+      {/* ── Footer ── */}
+      <footer className="hp-footer" id="confidentialite">
+        <div className="hp-wrap" style={{ padding: 0 }}>
+          <div className="foot-bottom">
+            <div className="fc">© 2026 &lt;PETRIX /&gt; · N. IKIREZI &amp; M. MISSAK · ESGI 4SI4</div>
+            <div className="fc">Mistral AI · AWS EC2 eu-west-1 · PostgreSQL RDS</div>
+            <div className="credit">OPEN-SOURCE · MIT</div>
           </div>
-          {!isAuthenticated && (
-            <Link to="/signup" className="text-sm text-primary-400 hover:text-primary-300">
-              Créer un compte →
-            </Link>
-          )}
+          <div className="foot-links">
+            <div className="grp">
+              <a href="#confidentialite">Politique de confidentialité</a>
+              <a href="#confidentialite">RGPD — art. 6.1.f · Données hébergées on-prem</a>
+            </div>
+            <div className="grp">
+              <a href="https://gitlab.com/petrix1/petrix" target="_blank" rel="noopener noreferrer">GitLab</a>
+            </div>
+          </div>
         </div>
       </footer>
     </div>

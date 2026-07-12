@@ -69,6 +69,7 @@ class HardeningSession(Base):
     total_checks: Mapped[int] = mapped_column(Integer, default=0)
     passed_checks: Mapped[int] = mapped_column(Integer, default=0)
 
+    ai_analysis: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

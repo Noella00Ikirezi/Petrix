@@ -220,6 +220,10 @@ export const scansApi = {
     const response = await apiClient.get(`/scans/${id}/findings`);
     return response.data;
   },
+  assets: async (id: string) => {
+    const response = await apiClient.get(`/scans/${id}/assets`);
+    return response.data;
+  },
 };
 
 // Dashboard API
@@ -271,6 +275,48 @@ export const hardeningApi = {
   },
   getFindings: async (sessionId: string) => {
     const response = await apiClient.get(`/hardening/sessions/${sessionId}/findings`);
+    return response.data;
+  },
+  getFullReport: async (sessionId: string) => {
+    const response = await apiClient.get(`/hardening/sessions/${sessionId}/report`);
+    return response.data;
+  },
+  importXml: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await apiClient.post('/hardening/import-xml', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+  aiChat: async (sessionId: string, question: string): Promise<{ answer: string }> => {
+    const response = await apiClient.post(`/hardening/sessions/${sessionId}/ai-chat`, { question });
+    return response.data;
+  },
+};
+
+export const feedApi = {
+  certFr: async (feedType: 'alerte' | 'avis' | 'dur' | 'ioc' | 'actualite' = 'alerte') => {
+    const response = await apiClient.get(`/feed/cert-fr?feed_type=${feedType}`);
+    return response.data;
+  },
+  certFrMulti: async () => {
+    const response = await apiClient.get('/feed/cert-fr/multi');
+    return response.data;
+  },
+  certFrFiche: async (certId: string, feedType = 'alerte') => {
+    const response = await apiClient.get(`/feed/cert-fr/fiche?cert_id=${certId}&feed_type=${feedType}`);
+    return response.data;
+  },
+  vulnCorrelations: async () => {
+    const response = await apiClient.get('/feed/vuln-correlations');
+    return response.data;
+  },
+};
+
+export const hardeningCorrelationsApi = {
+  sessionCorrelations: async (sessionId: string) => {
+    const response = await apiClient.get(`/hardening/sessions/${sessionId}/cert-correlations`);
     return response.data;
   },
 };

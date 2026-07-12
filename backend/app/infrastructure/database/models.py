@@ -159,6 +159,11 @@ class Asset(Base):
     tags: Mapped[List[str]] = mapped_column(JSONB, default=list)
     custom_fields: Mapped[dict] = mapped_column(JSONB, default=dict)
 
+    # Scan association — which scan last discovered this asset
+    last_scan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scans.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Metadata
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -171,6 +176,7 @@ class Asset(Base):
     vulnerabilities: Mapped[List["Vulnerability"]] = relationship(
         "Vulnerability", back_populates="asset", cascade="all, delete-orphan"
     )
+    last_scan: Mapped[Optional["Scan"]] = relationship("Scan", foreign_keys=[last_scan_id], back_populates="discovered_assets")
 
     __table_args__ = (
         Index("idx_assets_type_status", "asset_type", "status"),
@@ -302,6 +308,9 @@ class Scan(Base):
     created_by: Mapped["User"] = relationship("User", back_populates="scans")
     vulnerabilities: Mapped[List["Vulnerability"]] = relationship(
         "Vulnerability", back_populates="scan"
+    )
+    discovered_assets: Mapped[List["Asset"]] = relationship(
+        "Asset", foreign_keys="Asset.last_scan_id", back_populates="last_scan"
     )
 
     __table_args__ = (

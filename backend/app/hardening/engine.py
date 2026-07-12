@@ -14,6 +14,9 @@ from app.hardening.modules.linux import (
     audit_services,
     audit_filesystem,
     audit_network,
+    audit_packages,
+    audit_pam,
+    audit_logging,
 )
 from app.hardening.modules.macos import intel as macos_intel_mods, silicon as macos_silicon_mods
 
@@ -27,6 +30,9 @@ LINUX_MODULES: dict = {
     "services":   audit_services,
     "filesystem": audit_filesystem,
     "network":    audit_network,
+    "packages":   audit_packages,
+    "pam":        audit_pam,
+    "logging":    audit_logging,
 }
 
 MACOS_INTEL_MODULES: dict = {

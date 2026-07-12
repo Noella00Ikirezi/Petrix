@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Moon, Sun, Bell, LogOut, User, Settings, ChevronDown } from 'lucide-react';
+import { Moon, Sun, Bell, LogOut, User, Settings, ChevronDown, Menu } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/api/client';
 
@@ -39,7 +39,7 @@ function Avatar({ user }: { user: { first_name: string | null; last_name: string
   );
 }
 
-export default function Header() {
+export default function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const [isDark, setIsDark] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -47,9 +47,9 @@ export default function Header() {
   const { user, logout } = useAuthStore();
 
   useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true';
+    const isDarkMode = localStorage.getItem('darkMode') !== 'false';
     setIsDark(isDarkMode);
-    if (isDarkMode) document.documentElement.classList.add('dark');
+    document.documentElement.classList.toggle('dark', isDarkMode);
   }, []);
 
   // Fermer le menu si clic en dehors
@@ -82,78 +82,98 @@ export default function Header() {
     : user?.email?.split('@')[0] || '';
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6 dark:border-gray-700 dark:bg-gray-800">
+    <header style={{ display: 'flex', height: 64, alignItems: 'center', justifyContent: 'space-between', background: 'var(--panel)', borderBottom: '1px solid var(--line)', padding: '0 16px' }}>
+      {/* Hamburger — mobile only */}
+      <button
+        className="sidebar-toggle-btn"
+        onClick={onMenuClick}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, background: 'none', border: '1px solid var(--line)', cursor: 'pointer', color: 'var(--dim)' }}
+        aria-label="Menu"
+      >
+        <Menu size={18} />
+      </button>
       <div className="flex-1" />
 
-      <div className="flex items-center gap-4">
-        {/* Dark mode */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Dark mode toggle */}
         <button
           onClick={toggleDarkMode}
-          className="rounded-md p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
           title={isDark ? 'Light mode' : 'Dark mode'}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, background: 'none', border: '1px solid transparent', borderRadius: 3, cursor: 'pointer', color: 'var(--dim)', transition: 'color .15s, border-color .15s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--lime)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--line)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--dim)'; (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; }}
         >
-          {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          {isDark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
 
         {/* Notifications */}
-        <button className="relative rounded-md p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" />
+        <button
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', width: 34, height: 34, background: 'none', border: '1px solid transparent', borderRadius: 3, cursor: 'pointer', color: 'var(--dim)', transition: 'color .15s, border-color .15s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--lime)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--line)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--dim)'; (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; }}
+        >
+          <Bell size={16} />
+          <span style={{ position: 'absolute', top: 6, right: 6, width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
         </button>
 
         {/* Avatar + menu */}
-        <div className="relative border-l border-gray-200 pl-4 dark:border-gray-700" ref={menuRef}>
+        <div style={{ position: 'relative', borderLeft: '1px solid var(--line)', paddingLeft: 12, marginLeft: 4 }} ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', background: 'none', border: '1px solid transparent', borderRadius: 3, cursor: 'pointer', transition: 'border-color .15s, background .15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--line)'; (e.currentTarget as HTMLElement).style.background = 'var(--panel-hi)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; (e.currentTarget as HTMLElement).style.background = 'none'; }}
           >
             <Avatar user={user} />
-            <div className="hidden text-left sm:block">
-              <p className="text-sm font-medium text-gray-900 dark:text-white leading-tight">
+            <div style={{ textAlign: 'left' }} className="hidden sm:block">
+              <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3, margin: 0 }}>
                 {displayName}
               </p>
-              <p className="text-xs capitalize text-gray-500 dark:text-gray-400">
+              <p style={{ fontSize: 11, color: 'var(--faint)', margin: 0, textTransform: 'capitalize', letterSpacing: '.04em' }}>
                 {user?.role}
               </p>
             </div>
-            <ChevronDown className="h-4 w-4 text-gray-400" />
+            <ChevronDown size={14} style={{ color: 'var(--faint)' }} />
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-52 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 z-50">
+            <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 208, zIndex: 50, background: 'var(--panel)', border: '1px solid var(--line)' }}>
               {/* Info utilisateur */}
-              <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-700">
-                <p className="font-medium text-gray-900 dark:text-white text-sm">{displayName}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{user?.email}</p>
-                <span className="mt-1 inline-block rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium capitalize text-primary-700 dark:bg-primary-900/50 dark:text-primary-300">
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+                <p style={{ fontWeight: 600, color: 'var(--text)', fontSize: 13, margin: 0 }}>{displayName}</p>
+                <p style={{ fontSize: 11, color: 'var(--faint)', margin: '2px 0 6px' }}>{user?.email}</p>
+                <span style={{ display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--lime)', background: 'color-mix(in srgb, var(--lime) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--lime) 30%, transparent)', borderRadius: 2 }}>
                   {user?.role}
                 </span>
               </div>
 
               {/* Actions */}
-              <div className="p-1">
-                <button
-                  onClick={() => { setMenuOpen(false); navigate('/settings'); }}
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
-                >
-                  <User className="h-4 w-4" />
-                  Mon profil
-                </button>
-                <button
-                  onClick={() => { setMenuOpen(false); navigate('/settings'); }}
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
-                >
-                  <Settings className="h-4 w-4" />
-                  Paramètres
-                </button>
+              <div style={{ padding: 4 }}>
+                {[
+                  { label: 'Mon profil', icon: User, onClick: () => { setMenuOpen(false); navigate('/settings'); } },
+                  { label: 'Paramètres', icon: Settings, onClick: () => { setMenuOpen(false); navigate('/settings'); } },
+                ].map(({ label, icon: Icon, onClick }) => (
+                  <button
+                    key={label}
+                    onClick={onClick}
+                    style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'none', border: 'none', borderRadius: 2, cursor: 'pointer', fontSize: 12, color: 'var(--dim)', transition: 'background .1s, color .1s' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--panel-hi)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; (e.currentTarget as HTMLElement).style.color = 'var(--dim)'; }}
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </button>
+                ))}
               </div>
 
-              <div className="border-t border-gray-100 p-1 dark:border-gray-700">
+              <div style={{ padding: 4, borderTop: '1px solid var(--line)' }}>
                 <button
                   onClick={handleLogout}
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                  style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'none', border: 'none', borderRadius: 2, cursor: 'pointer', fontSize: 12, color: '#ef4444', transition: 'background .1s' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,.08)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; }}
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut size={14} />
                   Déconnexion
                 </button>
               </div>

@@ -52,6 +52,21 @@ async def generate_agent_token(
     return {"token": token, "user": current_user.email}
 
 
+@router.get("/download/wheel")
+async def download_agent_wheel():
+    """Serve the petrix-agent Python wheel — no auth required (token in config.env protects access)."""
+    import glob
+    wheels = sorted(glob.glob(str(INSTALL_DIR / "petrix_agent-*.whl")))
+    if not wheels:
+        raise HTTPException(status_code=503, detail="Agent wheel non disponible sur ce serveur")
+    wheel_path = Path(wheels[-1])  # latest version
+    return Response(
+        content=wheel_path.read_bytes(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{wheel_path.name}"'},
+    )
+
+
 @router.get("/download/{os_name}")
 async def download_installer(
     os_name: str,

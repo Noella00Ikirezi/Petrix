@@ -1,225 +1,186 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Server, Trash2, Shield, Scan } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Server, Plus, Search, FileText, Trash2,
+  CheckCircle, XCircle, Clock, AlertTriangle, Minus,
+  Monitor, Globe, Shield, FileCode, Download, Terminal,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
-import { assetsApi, hardeningApi, scansApi } from '@/api/client';
+import { hardeningApi } from '@/api/client';
 
-export default function AssetsPage() {
-  const [search, setSearch] = useState('');
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [scanTarget, setScanTarget] = useState<Asset | null>(null);
-  const queryClient = useQueryClient();
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['assets', search],
-    queryFn: () => assetsApi.list({ search: search || undefined }),
-  });
+interface LatestSession {
+  session_id: string;
+  status: string;
+  score: number | null;
+  grade: string | null;
+  completed_at: string | null;
+  total_checks: number;
+  passed_checks: number;
+  total_findings: number;
+  findings_summary: Record<string, number> | null;
+}
 
-  const deleteMutation = useMutation({
-    mutationFn: assetsApi.delete,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] });
-      toast.success('Asset supprimé');
-    },
-    onError: () => toast.error('Échec de la suppression'),
-  });
+interface Target {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  os_type: string;
+  description: string | null;
+  tags: string[];
+  created_at: string;
+  latest_session: LatestSession | null;
+  session_count: number;
+}
 
-  const assets = data?.items || [];
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const OS_ICONS: Record<string, typeof Monitor> = {
+  linux:          Server,
+  macos:          Monitor,
+  macos_intel:    Monitor,
+  macos_silicon:  Monitor,
+  windows:        Globe,
+};
+
+const OS_LABELS: Record<string, string> = {
+  linux:          'Linux',
+  macos:          'macOS',
+  macos_intel:    'macOS (Intel)',
+  macos_silicon:  'macOS (Silicon)',
+  windows:        'Windows',
+};
+
+// OS type → agent-script OS param mapping
+const OS_AGENT: Record<string, string> = {
+  linux:          'linux',
+  macos:          'macos',
+  macos_intel:    'macos',
+  macos_silicon:  'macos',
+  windows:        'windows',
+};
+
+const GRADE_CONFIG: Record<string, { bg: string; text: string; border: string }> = {
+  A: { bg: 'bg-green-100',  text: 'text-green-700',  border: 'border-green-300' },
+  B: { bg: 'bg-lime-100',   text: 'text-lime-700',   border: 'border-lime-300' },
+  C: { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300' },
+  D: { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300' },
+  E: { bg: 'bg-red-100',    text: 'text-red-600',    border: 'border-red-300' },
+  F: { bg: 'bg-red-200',    text: 'text-red-800',    border: 'border-red-400' },
+};
+
+const SCORE_COLOR = (score: number) => {
+  if (score >= 80) return 'text-green-600';
+  if (score >= 60) return 'text-yellow-600';
+  if (score >= 40) return 'text-orange-500';
+  return 'text-red-600';
+};
+
+function statusBadge(s: LatestSession | null) {
+  if (!s) return (
+    <span className="flex items-center gap-1 text-xs text-gray-400">
+      <Minus className="h-3.5 w-3.5" /> Jamais audité
+    </span>
+  );
+  if (s.status === 'failed') return (
+    <span className="flex items-center gap-1 text-xs text-red-500">
+      <XCircle className="h-3.5 w-3.5" /> Échec
+    </span>
+  );
+  if (s.status === 'completed') return (
+    <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+      <CheckCircle className="h-3.5 w-3.5" /> Audité
+    </span>
+  );
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Actifs</h1>
-          <p className="text-gray-600 dark:text-gray-400">Inventaire de votre parc IT</p>
-        </div>
-        <button onClick={() => setShowCreateModal(true)} className="btn btn-primary btn-md">
-          <Plus className="mr-2 h-4 w-4" />
-          Ajouter un actif
-        </button>
-      </div>
-
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Rechercher un actif..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="input pl-10"
-        />
-      </div>
-
-      <div className="card overflow-hidden p-0">
-        {isLoading ? (
-          <div className="flex h-64 items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
-          </div>
-        ) : assets.length === 0 ? (
-          <div className="flex h-64 flex-col items-center justify-center text-gray-500">
-            <Server className="mb-2 h-12 w-12" />
-            <p>Aucun actif — commencez par en ajouter un</p>
-            <button onClick={() => setShowCreateModal(true)} className="btn btn-primary btn-sm mt-4">
-              Ajouter un actif
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Nom</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">IP / Hostname</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Statut</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Criticité</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Vulns</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-                {assets.map((asset: Asset) => (
-                  <tr key={asset.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="whitespace-nowrap px-6 py-4">
-                      <div className="flex items-center">
-                        <Server className="mr-3 h-5 w-5 text-gray-400" />
-                        <div>
-                          <div className="font-medium text-gray-900 dark:text-white">{asset.name}</div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">{asset.fqdn || '-'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-white">{asset.asset_type}</td>
-                    <td className="whitespace-nowrap px-6 py-4 text-sm font-mono text-gray-900 dark:text-white">
-                      {asset.ip_address || asset.hostname || '-'}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4"><StatusBadge status={asset.status} /></td>
-                    <td className="whitespace-nowrap px-6 py-4"><CriticalityBadge criticality={asset.criticality} /></td>
-                    <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900 dark:text-white">{asset.vulnerability_count}</td>
-                    <td className="whitespace-nowrap px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {asset.ip_address && (
-                          <button
-                            onClick={() => setScanTarget(asset)}
-                            title="Lancer un scan sur cet asset"
-                            className="rounded p-1 text-gray-400 hover:bg-primary-100 hover:text-primary-600 dark:hover:bg-primary-900/40"
-                          >
-                            <Scan className="h-4 w-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => { if (confirm('Supprimer cet actif ?')) deleteMutation.mutate(asset.id); }}
-                          className="rounded p-1 text-gray-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {showCreateModal && (
-        <CreateAssetModal onClose={() => setShowCreateModal(false)} />
-      )}
-      {scanTarget && (
-        <ScanAssetModal asset={scanTarget} onClose={() => setScanTarget(null)} />
-      )}
-    </div>
+    <span className="flex items-center gap-1 text-xs text-gray-500">
+      <Clock className="h-3.5 w-3.5" /> {s.status}
+    </span>
   );
 }
 
-interface Asset {
-  id: string;
-  name: string;
-  asset_type: string;
-  status: string;
-  criticality: string;
-  ip_address: string | null;
-  hostname: string | null;
-  fqdn: string | null;
-  vulnerability_count: number;
-  tags?: string[];
+function formatDate(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const SCAN_TYPES = [
-  { value: 'discovery',     label: 'Découverte',   desc: 'Hôtes actifs sur le réseau (ping/ARP)' },
-  { value: 'compliance',    label: 'Ports',         desc: 'Scan des ports ouverts' },
-  { value: 'vulnerability', label: 'CVEs',          desc: 'Ports + détection de vulnérabilités' },
-  { value: 'full',          label: 'Audit complet', desc: 'Hôtes, ports, CVEs et hardening' },
-];
+// ─── Add System Modal ─────────────────────────────────────────────────────────
 
-function ScanAssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
-  const [scanType, setScanType] = useState('full');
+function AddSystemModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
-  const hasAgent = (asset.tags || []).includes('agent');
+  const [form, setForm] = useState({
+    name: '', os_type: 'linux', description: '',
+  });
 
-  const createMutation = useMutation({
-    mutationFn: () => scansApi.create({
-      name: `Scan ${asset.name} — ${new Date().toLocaleDateString('fr-FR')}`,
-      scan_type: scanType,
-      targets: [{ type: 'ip', value: asset.ip_address! }],
-      config: { agent_ip: asset.ip_address, agent_mode: true },
+  const mutation = useMutation({
+    mutationFn: () => hardeningApi.createTarget({
+      name: form.name,
+      os_type: form.os_type,
+      description: form.description || undefined,
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['scans'] });
-      toast.success(hasAgent
-        ? "Scan créé — l'agent le récupérera automatiquement (polling toutes les 5 min)"
-        : 'Scan créé dans la file d\'attente'
-      );
+      queryClient.invalidateQueries({ queryKey: ['systems'] });
+      toast.success('Système ajouté — téléchargez et exécutez l\'agent pour lancer l\'audit');
       onClose();
     },
-    onError: () => toast.error('Échec de la création du scan'),
+    onError: () => toast.error("Erreur lors de l'ajout"),
   });
+
+  const osAgentId = OS_AGENT[form.os_type] ?? 'linux';
+  const isWindows = osAgentId === 'windows';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900">
-            <Scan className="h-5 w-5 text-primary-600 dark:text-primary-400" />
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+        <h2 className="mb-5 text-lg font-bold text-gray-900 dark:text-white">Ajouter un système</h2>
+        <div className="space-y-3">
+          <div>
+            <label className="label">Nom du système</label>
+            <input className="input" placeholder="SRV-PROD-01" value={form.name}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
           <div>
-            <h2 className="font-bold text-gray-900 dark:text-white">Scanner {asset.name}</h2>
-            <p className="text-sm text-gray-500">{asset.ip_address}</p>
+            <label className="label">OS</label>
+            <select className="input" value={form.os_type}
+              onChange={e => setForm(f => ({ ...f, os_type: e.target.value }))}>
+              <option value="linux">Linux</option>
+              <option value="macos_intel">macOS Intel</option>
+              <option value="macos_silicon">macOS Apple Silicon</option>
+              <option value="windows">Windows</option>
+            </select>
           </div>
+          <div>
+            <label className="label">Description (optionnel)</label>
+            <input className="input" placeholder="Serveur web production…" value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+          </div>
+
+          {/* Agent instructions preview */}
+          {form.name && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900">
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-1">
+                <Terminal className="h-3 w-3" /> Comment lancer l'audit :
+              </p>
+              <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+                {isWindows
+                  ? `# Powershell (Admin)\n.\\petrix_agent_windows.ps1`
+                  : `# Terminal (sudo requis)\nsudo bash petrix_agent_${osAgentId}.sh`}
+              </pre>
+              <p className="text-xs text-gray-400 mt-2">Puis importez le fichier XML généré via "Importer un rapport"</p>
+            </div>
+          )}
         </div>
-
-        {hasAgent && (
-          <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300">
-            Agent Petrix détecté — le scan sera récupéré et exécuté automatiquement.
-          </div>
-        )}
-        {!hasAgent && (
-          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-            Aucun agent sur cette machine — installez l'agent pour l'exécution automatique.
-          </div>
-        )}
-
-        <div className="mb-5 grid grid-cols-2 gap-2">
-          {SCAN_TYPES.map(t => (
-            <button key={t.value} type="button"
-              onClick={() => setScanType(t.value)}
-              className={`rounded-lg border-2 p-3 text-left transition-all ${
-                scanType === t.value
-                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30'
-                  : 'border-gray-200 hover:border-gray-300 dark:border-gray-700'
-              }`}
-            >
-              <div className="text-sm font-medium text-gray-900 dark:text-white">{t.label}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{t.desc}</div>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex gap-3">
-          <button onClick={onClose} className="btn btn-secondary btn-md flex-1">Annuler</button>
-          <button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} className="btn btn-primary btn-md flex-1">
-            {createMutation.isPending ? 'Création...' : 'Lancer le scan'}
+        <div className="mt-6 flex justify-end gap-3">
+          <button onClick={onClose} className="btn btn-secondary btn-md">Annuler</button>
+          <button
+            onClick={() => mutation.mutate()}
+            disabled={!form.name || mutation.isPending}
+            className="btn btn-primary btn-md">
+            {mutation.isPending ? 'Ajout…' : 'Ajouter'}
           </button>
         </div>
       </div>
@@ -227,171 +188,370 @@ function ScanAssetModal({ asset, onClose }: { asset: Asset; onClose: () => void 
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    active: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-    inactive: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
-    maintenance: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
-    decommissioned: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-  };
-  const labels: Record<string, string> = { active: 'Actif', inactive: 'Inactif', maintenance: 'Maintenance', decommissioned: 'Déclassé' };
-  return <span className={`badge ${styles[status] || ''}`}>{labels[status] || status}</span>;
-}
+// ─── Download Agent Modal ─────────────────────────────────────────────────────
 
-function CriticalityBadge({ criticality }: { criticality: string }) {
-  const styles: Record<string, string> = {
-    critical: 'badge-critical', high: 'badge-high', medium: 'badge-medium', low: 'badge-low', info: 'badge-info',
-  };
-  const labels: Record<string, string> = { critical: 'Critique', high: 'Élevé', medium: 'Moyen', low: 'Faible', info: 'Info' };
-  return <span className={`badge ${styles[criticality] || ''}`}>{labels[criticality] || criticality}</span>;
-}
-
-const OS_BY_TYPE: Record<string, string> = {
-  server: 'linux', workstation: 'windows', network: 'other',
-  cloud_instance: 'linux', container: 'linux', database: 'linux',
-  application: 'other', iot: 'other', other: 'other',
-};
-
-function CreateAssetModal({ onClose }: { onClose: () => void }) {
-  const [formData, setFormData] = useState({
-    name: '',
-    asset_type: 'server',
-    ip_address: '',
-    hostname: '',
-    criticality: 'medium',
-  });
-  const [createHardening, setCreateHardening] = useState(false);
-  const [sshUser, setSshUser] = useState('root');
-  const [sshPort, setSshPort] = useState('22');
+function DownloadAgentModal({ target, onClose }: { target: Target; onClose: () => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  const createMutation = useMutation({
-    mutationFn: async (data: typeof formData) => {
-      const asset = await assetsApi.create(data);
-      if (createHardening && (data.ip_address || data.hostname)) {
-        try {
-          await hardeningApi.createTarget({
-            name: data.name,
-            host: data.ip_address || data.hostname,
-            port: parseInt(sshPort) || 22,
-            username: sshUser || 'root',
-            os_type: OS_BY_TYPE[data.asset_type] || 'linux',
-            description: `Créé depuis l'actif "${data.name}"`,
-          });
-        } catch {
-          // Don't fail asset creation if hardening target fails
-          toast('Actif créé — la cible hardening a échoué (vérifiez l\'IP)', { icon: '⚠️' });
-        }
-      }
-      return asset;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] });
-      toast.success(createHardening ? 'Actif créé + cible hardening ajoutée' : 'Actif créé');
+  const osAgent = OS_AGENT[target.os_type] ?? 'linux';
+  const isWindows = osAgent === 'windows';
+
+  const importXmlMutation = useMutation({
+    mutationFn: (file: File) => hardeningApi.importXml(file),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['systems'] });
+      toast.success(`Rapport importé — score ${data.score ?? '?'}/100`);
       onClose();
     },
-    onError: () => toast.error('Échec de la création'),
+    onError: () => toast.error("Erreur lors de l'import du rapport XML"),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate(formData);
+  const handleDownload = () => {
+    const url = `/api/v1/hardening/agent-script/${osAgent}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = isWindows ? 'petrix_agent_windows.ps1' : `petrix_agent_${osAgent}.sh`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
-  const needsHardeningFields = createHardening && (formData.ip_address || formData.hostname);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+        <h2 className="mb-1 text-lg font-bold text-gray-900 dark:text-white">
+          Auditer — {target.name}
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+          {OS_LABELS[target.os_type] ?? target.os_type}
+        </p>
+
+        {/* Steps */}
+        <div className="space-y-4">
+          {/* Step 1 */}
+          <div className="flex gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-600 text-xs font-bold text-white">1</div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Télécharger l'agent d'audit</p>
+              <button
+                onClick={handleDownload}
+                className="flex items-center gap-2 rounded-lg border border-primary-300 bg-primary-50 px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 dark:border-primary-700 dark:bg-primary-900/20 dark:text-primary-300 transition-colors">
+                <Download className="h-4 w-4" />
+                {isWindows ? 'petrix_agent_windows.ps1' : `petrix_agent_${osAgent}.sh`}
+              </button>
+            </div>
+          </div>
+
+          {/* Step 2 */}
+          <div className="flex gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-600 text-xs font-bold text-white">2</div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Exécuter sur le système cible</p>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900">
+                <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                  {isWindows
+                    ? `# PowerShell (en tant qu'Administrateur)\n.\\petrix_agent_windows.ps1\n\n# ou avec upload automatique :\n.\\petrix_agent_windows.ps1 -PetrixUrl "http://PETRIX_URL"`
+                    : `# Terminal (avec sudo)\nsudo bash petrix_agent_${osAgent}.sh\n\n# ou avec upload automatique :\nsudo bash petrix_agent_${osAgent}.sh http://PETRIX_URL`}
+                </pre>
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">Le rapport XML est sauvegardé dans <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">/tmp/</code></p>
+            </div>
+          </div>
+
+          {/* Step 3 */}
+          <div className="flex gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-600 text-xs font-bold text-white">3</div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Importer le rapport XML</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xml"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) importXmlMutation.mutate(file);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importXmlMutation.isPending}
+                className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
+                {importXmlMutation.isPending
+                  ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-primary-600" />
+                  : <FileCode className="h-4 w-4 text-primary-600" />}
+                Sélectionner le fichier XML
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-end">
+          <button onClick={onClose} className="btn btn-secondary btn-md">Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── System Card ──────────────────────────────────────────────────────────────
+
+function SystemCard({ target, onShowAgent, onDelete }: {
+  target: Target;
+  onShowAgent: (t: Target) => void;
+  onDelete: (id: string) => void;
+}) {
+  const navigate = useNavigate();
+  const s = target.latest_session;
+  const OsIcon = OS_ICONS[target.os_type] ?? Server;
+  const grade = s?.grade ?? null;
+  const gradeCfg = grade ? (GRADE_CONFIG[grade] ?? GRADE_CONFIG['F']) : null;
+  const score = s?.score ?? null;
+  const criticals = s?.findings_summary?.CRITICAL ?? 0;
+  const highs = s?.findings_summary?.HIGH ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 dark:bg-gray-800 max-h-[90vh] overflow-y-auto">
-        <h2 className="mb-4 text-xl font-bold text-gray-900 dark:text-white">Ajouter un actif</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="label">Nom *</label>
-            <input type="text" value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="input mt-1" placeholder="Serveur-01" required />
+    <div className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700">
+            <OsIcon className="h-5 w-5 text-gray-500 dark:text-gray-300" />
           </div>
-          <div>
-            <label className="label">Type</label>
-            <select value={formData.asset_type}
-              onChange={(e) => setFormData({ ...formData, asset_type: e.target.value })}
-              className="input mt-1">
-              <option value="server">Serveur</option>
-              <option value="workstation">Poste de travail</option>
-              <option value="network">Équipement réseau</option>
-              <option value="cloud_instance">Instance cloud</option>
-              <option value="container">Conteneur</option>
-              <option value="database">Base de données</option>
-              <option value="application">Application</option>
-              <option value="iot">IoT</option>
-              <option value="other">Autre</option>
-            </select>
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-gray-900 dark:text-white">{target.name}</p>
+            <p className="truncate text-xs text-gray-400">{OS_LABELS[target.os_type] ?? target.os_type}</p>
           </div>
-          <div>
-            <label className="label">Adresse IP</label>
-            <input type="text" value={formData.ip_address}
-              onChange={(e) => setFormData({ ...formData, ip_address: e.target.value })}
-              className="input mt-1" placeholder="192.168.1.10" />
-          </div>
-          <div>
-            <label className="label">Hostname</label>
-            <input type="text" value={formData.hostname}
-              onChange={(e) => setFormData({ ...formData, hostname: e.target.value })}
-              className="input mt-1" placeholder="serveur-01.local" />
-          </div>
-          <div>
-            <label className="label">Criticité</label>
-            <select value={formData.criticality}
-              onChange={(e) => setFormData({ ...formData, criticality: e.target.value })}
-              className="input mt-1">
-              <option value="critical">Critique</option>
-              <option value="high">Élevée</option>
-              <option value="medium">Moyenne</option>
-              <option value="low">Faible</option>
-              <option value="info">Info</option>
-            </select>
-          </div>
+        </div>
 
-          {/* Hardening option */}
-          <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-            <label className="flex cursor-pointer items-center gap-3">
-              <input type="checkbox" checked={createHardening}
-                onChange={(e) => setCreateHardening(e.target.checked)}
-                className="h-4 w-4 accent-primary-600" />
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 text-purple-600" />
-                <span className="text-sm font-medium text-gray-900 dark:text-white">
-                  Créer une cible hardening (audit SSH)
-                </span>
-              </div>
-            </label>
-            {needsHardeningFields && (
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label text-xs">Utilisateur SSH</label>
-                  <input type="text" value={sshUser} onChange={(e) => setSshUser(e.target.value)}
-                    className="input mt-1 text-sm" placeholder="root" />
-                </div>
-                <div>
-                  <label className="label text-xs">Port SSH</label>
-                  <input type="number" value={sshPort} onChange={(e) => setSshPort(e.target.value)}
-                    className="input mt-1 text-sm" placeholder="22" />
-                </div>
-              </div>
-            )}
-            {createHardening && !formData.ip_address && !formData.hostname && (
-              <p className="mt-2 text-xs text-amber-600">Une IP ou un hostname est requis pour le hardening.</p>
-            )}
+        {/* Grade badge */}
+        {gradeCfg && grade ? (
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-2 font-bold text-lg ${gradeCfg.bg} ${gradeCfg.text} ${gradeCfg.border}`}>
+            {grade}
           </div>
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn btn-secondary btn-md">Annuler</button>
-            <button type="submit" disabled={createMutation.isPending} className="btn btn-primary btn-md">
-              {createMutation.isPending ? 'Création...' : 'Créer'}
-            </button>
+        ) : (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-2 border-gray-200 bg-gray-50 text-gray-300 dark:border-gray-600 dark:bg-gray-700 text-lg font-bold">
+            —
           </div>
-        </form>
+        )}
       </div>
+
+      {/* Score bar */}
+      <div className="mt-4">
+        {score !== null ? (
+          <>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-gray-500">Score de conformité</span>
+              <span className={`text-sm font-bold ${SCORE_COLOR(score)}`}>{score.toFixed(0)}/100</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-700">
+              <div
+                className={`h-2 rounded-full transition-all ${score >= 80 ? 'bg-green-500' : score >= 60 ? 'bg-yellow-400' : score >= 40 ? 'bg-orange-400' : 'bg-red-500'}`}
+                style={{ width: `${score}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-700" />
+        )}
+      </div>
+
+      {/* Status + date */}
+      <div className="mt-3 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        {statusBadge(s)}
+        {s?.completed_at && (
+          <span className="ml-auto">{formatDate(s.completed_at)}</span>
+        )}
+      </div>
+
+      {/* Findings highlights */}
+      {s?.status === 'completed' && (criticals > 0 || highs > 0) && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {criticals > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+              <AlertTriangle className="h-3 w-3" /> {criticals} Critique{criticals > 1 ? 's' : ''}
+            </span>
+          )}
+          {highs > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+              {highs} Élevé{highs > 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="mt-4 flex gap-2 border-t border-gray-100 pt-4 dark:border-gray-700">
+        <button
+          onClick={() => onShowAgent(target)}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-xs font-medium text-white hover:bg-primary-700 transition-colors">
+          <Download className="h-3.5 w-3.5" /> Auditer
+        </button>
+        {s?.session_id && (
+          <button
+            onClick={() => navigate(`/audit/${s.session_id}`)}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors">
+            <FileText className="h-3.5 w-3.5" /> Rapport
+          </button>
+        )}
+        <button
+          onClick={() => onDelete(target.id)}
+          className="flex items-center justify-center rounded-lg border border-gray-200 p-2 text-gray-400 hover:border-red-200 hover:bg-red-50 hover:text-red-500 dark:border-gray-600 dark:hover:bg-red-900/20 transition-colors">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function AssetsPage() {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [agentTarget, setAgentTarget] = useState<Target | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const importXmlMutation = useMutation({
+    mutationFn: (file: File) => hardeningApi.importXml(file),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['systems'] });
+      toast.success(`Rapport importé — ${data.target_name ?? 'système'} · score ${data.score ?? '?'}/100`);
+    },
+    onError: () => toast.error("Erreur lors de l'import du rapport XML"),
+  });
+
+  const { data: targets = [], isLoading } = useQuery<Target[]>({
+    queryKey: ['systems'],
+    queryFn: hardeningApi.listTargets,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => hardeningApi.deleteTarget(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['systems'] });
+      toast.success('Système supprimé');
+    },
+  });
+
+  const filtered = targets.filter(t =>
+    !search ||
+    t.name.toLowerCase().includes(search.toLowerCase()) ||
+    (t.host ?? '').includes(search)
+  );
+
+  const audited   = targets.filter(t => t.latest_session?.status === 'completed');
+  const avgScore  = audited.length
+    ? audited.reduce((acc, t) => acc + (t.latest_session?.score ?? 0), 0) / audited.length
+    : null;
+  const totalCriticals = audited.reduce(
+    (acc, t) => acc + (t.latest_session?.findings_summary?.CRITICAL ?? 0), 0
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Systèmes audités</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            Périmètre d'audit — conformité ANSSI-BP-028
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Hidden global import input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xml"
+            className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) importXmlMutation.mutate(file);
+              e.target.value = '';
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importXmlMutation.isPending}
+            className="btn btn-md flex items-center gap-2 border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+            {importXmlMutation.isPending
+              ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-primary-600" />
+              : <FileCode className="h-4 w-4 text-primary-600" />}
+            Importer un rapport
+          </button>
+          <button onClick={() => setShowAdd(true)} className="btn btn-primary btn-md">
+            <Plus className="mr-2 h-4 w-4" /> Ajouter un système
+          </button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      {targets.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {[
+            { label: 'Systèmes',  value: targets.length,    sub: 'dans le périmètre', icon: Server,        color: 'text-blue-600' },
+            { label: 'Audités',   value: audited.length,    sub: `sur ${targets.length}`, icon: CheckCircle, color: 'text-green-600' },
+            { label: 'Score moy.', value: avgScore !== null ? `${avgScore.toFixed(0)}/100` : '—', sub: 'conformité', icon: Shield, color: SCORE_COLOR(avgScore ?? 0) },
+            { label: 'Critiques', value: totalCriticals,    sub: 'findings actifs',   icon: AlertTriangle, color: totalCriticals > 0 ? 'text-red-600' : 'text-gray-400' },
+          ].map(stat => (
+            <div key={stat.label} className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-1">
+                <stat.icon className={`h-3.5 w-3.5 ${stat.color}`} />
+                {stat.label}
+              </div>
+              <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{stat.sub}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input type="text" placeholder="Rechercher un système…" value={search}
+          onChange={e => setSearch(e.target.value)} className="input pl-9 text-sm" />
+      </div>
+
+      {/* Grid */}
+      {isLoading ? (
+        <div className="flex h-48 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex h-64 flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-gray-300 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800/50">
+          <Server className="h-12 w-12 opacity-30" />
+          <div className="text-center">
+            <p className="font-medium text-gray-600 dark:text-gray-300">Aucun système dans le périmètre</p>
+            <p className="text-sm mt-1">Ajoutez un système puis téléchargez l'agent pour lancer l'audit</p>
+          </div>
+          <button onClick={() => setShowAdd(true)} className="btn btn-primary btn-sm">
+            <Plus className="mr-1.5 h-3.5 w-3.5" /> Ajouter un système
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map(target => (
+            <SystemCard
+              key={target.id}
+              target={target}
+              onShowAgent={t => setAgentTarget(t)}
+              onDelete={id => {
+                if (confirm('Supprimer ce système et tous ses audits ?')) {
+                  deleteMutation.mutate(id);
+                }
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      {showAdd && <AddSystemModal onClose={() => setShowAdd(false)} />}
+      {agentTarget && <DownloadAgentModal target={agentTarget} onClose={() => setAgentTarget(null)} />}
     </div>
   );
 }

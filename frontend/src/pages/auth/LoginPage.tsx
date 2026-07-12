@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Loader2, Mail, ArrowLeft } from 'lucide-react';
+import { Loader2, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
@@ -18,42 +18,28 @@ export default function LoginPage() {
   const setAuth = useAuthStore((state) => state.setAuth);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Auto-focus first OTP input when switching to OTP phase
   useEffect(() => {
-    if (phase === 'otp') {
-      otpRefs.current[0]?.focus();
-    }
+    if (phase === 'otp') otpRefs.current[0]?.focus();
   }, [phase]);
 
   const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-
     try {
       const data = await authApi.login(email, password);
-
-      // MFA désactivé → tokens directs
       if (data.access_token) {
-        // Stocker le token d'abord pour que getMe() fonctionne
         useAuthStore.getState().setToken(data.access_token);
         useAuthStore.getState().setRefreshToken(data.refresh_token);
-
         try {
           const user = await authApi.getMe();
           setAuth(data.access_token, data.refresh_token, user);
         } catch {
-          // Si getMe échoue, on crée un user minimal depuis l'email
-          setAuth(data.access_token, data.refresh_token, {
-            id: '', email, first_name: null, last_name: null, role: 'admin', avatar_url: null,
-          });
+          setAuth(data.access_token, data.refresh_token, { id: '', email, first_name: null, last_name: null, role: 'admin', avatar_url: null });
         }
-
         toast.success('Connecté');
         navigate(data.must_change_password ? '/change-password' : '/dashboard');
         return;
       }
-
-      // MFA activé → phase OTP
       setMfaToken(data.mfa_token);
       setPhase('otp');
       toast.success('Code envoyé sur votre email');
@@ -67,21 +53,16 @@ export default function LoginPage() {
 
   const verifyOtp = async (code: string) => {
     setIsLoading(true);
-
     try {
       const { access_token, refresh_token } = await authApi.verifyOtp(mfaToken, code);
-
-      // Set token to make authenticated request
       useAuthStore.getState().setToken(access_token);
-
-      // Get user info
       const user = await authApi.getMe();
       setAuth(access_token, refresh_token, user);
-      toast.success('Welcome back!');
+      toast.success('Connecté');
       navigate('/dashboard');
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
-      toast.error(err.response?.data?.detail || 'Invalid OTP code');
+      toast.error(err.response?.data?.detail || 'Code invalide');
       setOtpDigits(['', '', '', '', '', '']);
       otpRefs.current[0]?.focus();
     } finally {
@@ -90,184 +71,145 @@ export default function LoginPage() {
   };
 
   const handleOtpChange = (index: number, value: string) => {
-    // Handle paste
     if (value.length > 1) {
       const digits = value.replace(/\D/g, '').slice(0, 6).split('');
       const newOtp = [...otpDigits];
-      digits.forEach((d, i) => {
-        if (index + i < 6) newOtp[index + i] = d;
-      });
+      digits.forEach((d, i) => { if (index + i < 6) newOtp[index + i] = d; });
       setOtpDigits(newOtp);
-
-      const nextIndex = Math.min(index + digits.length, 5);
-      otpRefs.current[nextIndex]?.focus();
-
-      // Auto-submit if all 6 digits filled
-      if (newOtp.every((d) => d !== '')) {
-        verifyOtp(newOtp.join(''));
-      }
+      otpRefs.current[Math.min(index + digits.length, 5)]?.focus();
+      if (newOtp.every((d) => d !== '')) verifyOtp(newOtp.join(''));
       return;
     }
-
-    // Single digit
     if (value && !/^\d$/.test(value)) return;
-
     const newOtp = [...otpDigits];
     newOtp[index] = value;
     setOtpDigits(newOtp);
-
-    if (value && index < 5) {
-      otpRefs.current[index + 1]?.focus();
-    }
-
-    // Auto-submit when all 6 digits entered
-    if (value && newOtp.every((d) => d !== '')) {
-      verifyOtp(newOtp.join(''));
-    }
+    if (value && index < 5) otpRefs.current[index + 1]?.focus();
+    if (value && newOtp.every((d) => d !== '')) verifyOtp(newOtp.join(''));
   };
 
   const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
-      otpRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handleBack = () => {
-    setPhase('credentials');
-    setOtpDigits(['', '', '', '', '', '']);
-    setMfaToken('');
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) otpRefs.current[index - 1]?.focus();
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-petrix-white px-4 dark:bg-petrix-void">
-      <div className="w-full max-w-md">
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px', fontFamily: 'var(--font-mono)' }}>
+      {/* Pixels décoratifs */}
+      <span style={{ position: 'fixed', top: '20%', left: '5%', width: 6, height: 6, background: 'var(--lime)', opacity: 0, animation: 'pxfade 6s ease-in-out infinite' }} />
+      <span style={{ position: 'fixed', top: '60%', right: '8%', width: 6, height: 6, background: 'var(--lime)', opacity: 0, animation: 'pxfade 6s ease-in-out 2s infinite' }} />
+
+      <div style={{ width: '100%', maxWidth: 420 }}>
+
         {/* Logo */}
-        <div className="mb-8 text-center">
-          <img src="/logo-petrix.svg" alt="Petrix" className="mx-auto mb-4 h-20 w-20 dark:hidden" />
-          <img src="/logo-petrix-dark.svg" alt="Petrix" className="mx-auto mb-4 hidden h-20 w-20 dark:block" />
-          <h1 className="text-3xl font-bold text-petrix-void dark:text-petrix-cyan-light">
-            Petrix
-          </h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
-            Security & Compliance Platform
-          </p>
+        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+          <div style={{ display: 'inline-block', border: '1px solid var(--lime-dim)', padding: '12px 24px', marginBottom: 20 }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, letterSpacing: '.08em', color: 'var(--text)' }}>
+              &lt;PETRIX <span style={{ color: 'var(--lime)' }}>/&gt;</span>
+            </span>
+          </div>
+          <div style={{ fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--faint)' }}>
+            // Security &amp; Compliance Platform
+          </div>
         </div>
 
-        {/* Phase 1: Credentials */}
+        {/* Phase 1 : credentials */}
         {phase === 'credentials' && (
-          <div className="card">
-            <form onSubmit={handleCredentials} className="space-y-4">
+          <div style={{ border: '1px solid var(--line)', background: 'var(--panel)' }}>
+            {/* Header du panel */}
+            <div style={{ borderBottom: '1px solid var(--line)', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--lime)' }}>// AUTH.LOGIN()</span>
+              <span style={{ fontSize: 10, letterSpacing: '.15em', color: 'var(--faint)', textTransform: 'uppercase' }}>Accès_Sécurisé</span>
+            </div>
+
+            <form onSubmit={handleCredentials} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
               <div>
-                <label htmlFor="email" className="label">
-                  Email
+                <label htmlFor="email" style={{ display: 'block', fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 8 }}>
+                  .Email
                 </label>
                 <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="input mt-1"
-                  placeholder="admin@petrix.local"
-                  required
+                  id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  className="input" placeholder="admin@petrix.local" required
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label htmlFor="password" style={{ display: 'block', fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 8 }}>
+                  .Password
+                </label>
+                <input
+                  id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                  className="input" placeholder="••••••••" required
+                  style={{ width: '100%' }}
                 />
               </div>
 
-              <div>
-                <label htmlFor="password" className="label">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input mt-1"
-                  placeholder="********"
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="btn btn-primary btn-md w-full"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  'Continue'
-                )}
+              <button type="submit" disabled={isLoading} className="btn" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 8, opacity: isLoading ? 0.6 : 1 }}>
+                {isLoading ? <><Loader2 size={14} className="animate-spin" /> Vérification...</> : 'CONNEXION()'}
               </button>
             </form>
 
-            <div className="mt-4 text-center">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Don't have an account?{' '}
-                <Link to="/signup" className="font-medium text-primary-600 hover:underline dark:text-primary-400">
-                  Sign up
-                </Link>
-              </p>
+            {/* Footer du panel */}
+            <div style={{ borderTop: '1px solid var(--line)', padding: '12px 24px', display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--faint)', letterSpacing: '.1em' }}>
+              <span>Pas de compte ?</span>
+              <Link to="/signup" style={{ color: 'var(--lime)', textTransform: 'uppercase', letterSpacing: '.15em', fontSize: 10 }}>
+                SIGNUP() →
+              </Link>
             </div>
           </div>
         )}
 
-        {/* Phase 2: OTP Verification */}
+        {/* Phase 2 : OTP */}
         {phase === 'otp' && (
-          <div className="card">
-            <div className="mb-6 text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/50">
-                <Mail className="h-7 w-7 text-primary-600 dark:text-primary-400" />
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Verification code
-              </h2>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Code sent to <span className="font-medium text-gray-700 dark:text-gray-300">{email}</span>
+          <div style={{ border: '1px solid var(--line)', background: 'var(--panel)' }}>
+            <div style={{ borderBottom: '1px solid var(--line)', padding: '14px 24px' }}>
+              <span style={{ fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--lime)' }}>// MFA.VERIFY()</span>
+            </div>
+
+            <div style={{ padding: 24 }}>
+              <p style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 24, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                Code envoyé à <span style={{ color: 'var(--text)' }}>{email}</span>
               </p>
-            </div>
 
-            <div className="flex justify-center gap-2">
-              {otpDigits.map((digit, index) => (
-                <input
-                  key={index}
-                  ref={(el) => { otpRefs.current[index] = el; }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={digit}
-                  onChange={(e) => handleOtpChange(index, e.target.value)}
-                  onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                  className="h-14 w-12 rounded-lg border border-gray-300 bg-white text-center text-xl font-bold text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:focus:border-primary-400"
-                  disabled={isLoading}
-                />
-              ))}
-            </div>
-
-            {isLoading && (
-              <div className="mt-4 flex items-center justify-center text-sm text-gray-500">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Verifying...
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 24 }}>
+                {otpDigits.map((digit, index) => (
+                  <input
+                    key={index}
+                    ref={(el) => { otpRefs.current[index] = el; }}
+                    type="text" inputMode="numeric" maxLength={6}
+                    value={digit}
+                    onChange={(e) => handleOtpChange(index, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                    disabled={isLoading}
+                    style={{
+                      width: 48, height: 56, textAlign: 'center', fontSize: 20, fontWeight: 700,
+                      background: 'var(--panel-hi)', border: `1px solid ${digit ? 'var(--lime)' : 'var(--line)'}`,
+                      color: 'var(--text)', fontFamily: 'var(--font-mono)', outline: 'none',
+                    }}
+                  />
+                ))}
               </div>
-            )}
 
-            <div className="mt-6 text-center">
-              <button
-                onClick={handleBack}
-                className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                <ArrowLeft className="mr-1 h-4 w-4" />
-                Back to login
-              </button>
+              {isLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--faint)', fontSize: 12, marginBottom: 16 }}>
+                  <Loader2 size={14} className="animate-spin" /> Vérification...
+                </div>
+              )}
             </div>
 
-            <p className="mt-4 text-center text-xs text-gray-400 dark:text-gray-500">
-              Check your email for the 6-digit code. Code expires in 5 minutes.
-            </p>
+            <div style={{ borderTop: '1px solid var(--line)', padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button onClick={() => { setPhase('credentials'); setOtpDigits(['', '', '', '', '', '']); setMfaToken(''); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--faint)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-mono)', letterSpacing: '.1em', textTransform: 'uppercase' }}>
+                <ArrowLeft size={12} /> Retour
+              </button>
+              <span style={{ fontSize: 10, color: 'var(--faint)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Expire dans 5min</span>
+            </div>
           </div>
         )}
+
+        {/* ANSSI mention */}
+        <div style={{ marginTop: 24, textAlign: 'center', fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: 'var(--faint)' }}>
+          // Conforme ANSSI-BP-028 · Données locales uniquement
+        </div>
       </div>
     </div>
   );

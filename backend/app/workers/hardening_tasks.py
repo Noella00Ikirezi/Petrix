@@ -111,7 +111,7 @@ def run_hardening_session(self, session_id: str) -> dict:
         db.commit()
 
         logger.info(
-            "Hardening session %s completed: score=%s grade=%s findings=%s",
+            "Hardening session {} completed: score={} grade={} findings={}",
             session_id,
             result["score"],
             result["grade"],
@@ -127,7 +127,7 @@ def run_hardening_session(self, session_id: str) -> dict:
         }
 
     except Exception as exc:
-        logger.error("Hardening session %s failed: %s", session_id, exc)
+        logger.error("Hardening session {} failed: {}", session_id, exc)
         try:
             session = db.query(HardeningSession).filter(HardeningSession.id == session_id).first()
             if session:

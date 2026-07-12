@@ -1,4 +1,4 @@
-"""Dashboard endpoints - Overview and metrics."""
+"""Dashboard endpoints - scoped by user role."""
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.permissions import Permission
+from app.core.permissions import Permission, UserRole
 from app.infrastructure.database import get_db
 from app.infrastructure.database.models import (
     Asset,
@@ -14,28 +14,41 @@ from app.infrastructure.database.models import (
     Vulnerability,
     VulnStatus,
     Severity,
-    Scan,
-    ScanStatus,
     User,
+)
+from app.infrastructure.database.hardening_models import (
+    HardeningSession,
+    HardeningSessionStatus,
 )
 from app.api.v1.deps import require_permission
 
 router = APIRouter()
 
 
+def _is_admin(user: User) -> bool:
+    return user.role == UserRole.ADMIN
+
+
+def _hs_base(db: Session, user: User):
+    """Base HardeningSession query — scoped to user unless admin."""
+    q = db.query(HardeningSession)
+    if not _is_admin(user):
+        q = q.filter(HardeningSession.created_by_id == user.id)
+    return q
+
+
 class DashboardStats(BaseModel):
-    """Dashboard statistics."""
     total_assets: int
     active_assets: int
     total_vulnerabilities: int
     open_vulnerabilities: int
     critical_vulnerabilities: int
     high_vulnerabilities: int
-    total_scans: int
-    completed_scans: int
-    running_scans: int
-    average_score: float | None
-    last_scan_date: str | None
+    total_hardening_sessions: int
+    completed_hardening_sessions: int
+    running_hardening_sessions: int
+    average_hardening_score: float | None
+    last_audit_date: str | None
 
 
 class VulnTrend(BaseModel):
@@ -51,8 +64,11 @@ class DashboardResponse(BaseModel):
     vuln_by_severity: dict
     vuln_by_status: dict
     assets_by_type: dict
-    recent_scans: list
+    recent_audits: list
     vuln_trends: list[VulnTrend]
+    # Contexte de scope pour le frontend
+    scope: str          # "own" | "global"
+    user_role: str
 
 
 @router.get("", response_model=DashboardResponse)
@@ -60,141 +76,147 @@ async def get_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.ASSET_VIEW)),
 ):
-    """Get dashboard overview with key metrics."""
+    """
+    Dashboard scoped by role:
+    - Admin: métriques globales (tous les comptes)
+    - Autres rôles: uniquement les données de l'utilisateur connecté
+    Assets et vulnérabilités restent globaux (pas de champ owner dans le modèle actuel).
+    Hardening sessions et targets sont scopés par created_by_id.
+    """
+    is_admin = _is_admin(current_user)
 
-    # Assets stats
-    total_assets = db.query(Asset).count()
+    # ── Assets (global — modèle sans owner) ──────────────────────────────────
+    total_assets  = db.query(Asset).count()
     active_assets = db.query(Asset).filter(Asset.status == AssetStatus.ACTIVE).count()
 
-    # Vulnerabilities stats
-    total_vulns = db.query(Vulnerability).count()
-    open_vulns = db.query(Vulnerability).filter(
-        Vulnerability.status == VulnStatus.OPEN
-    ).count()
+    # ── Vulnérabilités (global) ───────────────────────────────────────────────
+    total_vulns    = db.query(Vulnerability).count()
+    open_vulns     = db.query(Vulnerability).filter(Vulnerability.status == VulnStatus.OPEN).count()
     critical_vulns = db.query(Vulnerability).filter(
-        Vulnerability.severity == Severity.CRITICAL,
-        Vulnerability.status == VulnStatus.OPEN,
+        Vulnerability.severity == Severity.CRITICAL, Vulnerability.status == VulnStatus.OPEN
     ).count()
     high_vulns = db.query(Vulnerability).filter(
-        Vulnerability.severity == Severity.HIGH,
-        Vulnerability.status == VulnStatus.OPEN,
+        Vulnerability.severity == Severity.HIGH, Vulnerability.status == VulnStatus.OPEN
     ).count()
 
-    # Scans stats
-    total_scans = db.query(Scan).count()
-    completed_scans = db.query(Scan).filter(Scan.status == ScanStatus.COMPLETED).count()
-    running_scans = db.query(Scan).filter(Scan.status == ScanStatus.RUNNING).count()
+    # ── Hardening (scoped) ────────────────────────────────────────────────────
+    hs_q = _hs_base(db, current_user)
 
-    # Average score from completed scans
+    total_sessions     = hs_q.count()
+    completed_sessions = hs_q.filter(HardeningSession.status == HardeningSessionStatus.COMPLETED).count()
+    running_sessions   = _hs_base(db, current_user).filter(
+        HardeningSession.status.in_([HardeningSessionStatus.CONNECTING, HardeningSessionStatus.AUDITING])
+    ).count()
+
     avg_score_result = (
-        db.query(func.avg(Scan.score))
-        .filter(Scan.status == ScanStatus.COMPLETED, Scan.score.isnot(None))
+        _hs_base(db, current_user)
+        .filter(
+            HardeningSession.status == HardeningSessionStatus.COMPLETED,
+            HardeningSession.score.isnot(None),
+        )
+        .with_entities(func.avg(HardeningSession.score))
         .scalar()
     )
     average_score = round(float(avg_score_result), 1) if avg_score_result else None
 
-    # Last scan date
-    last_scan = (
-        db.query(Scan)
-        .filter(Scan.status == ScanStatus.COMPLETED)
-        .order_by(Scan.completed_at.desc())
+    last_session = (
+        _hs_base(db, current_user)
+        .filter(HardeningSession.status == HardeningSessionStatus.COMPLETED)
+        .order_by(HardeningSession.completed_at.desc())
         .first()
     )
-    last_scan_date = last_scan.completed_at.isoformat() if last_scan and last_scan.completed_at else None
+    last_audit_date = (
+        last_session.completed_at.isoformat()
+        if last_session and last_session.completed_at
+        else None
+    )
 
-    # Vulnerabilities by severity
-    vuln_by_severity = {}
-    for severity in Severity:
-        count = db.query(Vulnerability).filter(Vulnerability.severity == severity).count()
-        vuln_by_severity[severity.value] = count
+    # ── Vulns par sévérité (global) ───────────────────────────────────────────
+    vuln_by_severity = {
+        sev.value: db.query(Vulnerability).filter(Vulnerability.severity == sev).count()
+        for sev in Severity
+    }
 
-    # Vulnerabilities by status
-    vuln_by_status = {}
-    for status in VulnStatus:
-        count = db.query(Vulnerability).filter(Vulnerability.status == status).count()
-        vuln_by_status[status.value] = count
+    vuln_by_status = {
+        st.value: db.query(Vulnerability).filter(Vulnerability.status == st).count()
+        for st in VulnStatus
+    }
 
-    # Assets by type
-    assets_by_type = {}
+    # ── Assets par type (global) ──────────────────────────────────────────────
     from app.infrastructure.database.models import AssetType
-    for asset_type in AssetType:
-        count = db.query(Asset).filter(Asset.asset_type == asset_type).count()
-        if count > 0:
-            assets_by_type[asset_type.value] = count
+    assets_by_type = {
+        at.value: c
+        for at in AssetType
+        if (c := db.query(Asset).filter(Asset.asset_type == at).count()) > 0
+    }
 
-    # Recent scans (last 5)
-    recent_scans = (
-        db.query(Scan)
-        .order_by(Scan.created_at.desc())
+    # ── Derniers audits (scoped) ──────────────────────────────────────────────
+    recent_sessions = (
+        _hs_base(db, current_user)
+        .filter(HardeningSession.status == HardeningSessionStatus.COMPLETED)
+        .order_by(HardeningSession.completed_at.desc())
         .limit(5)
         .all()
     )
-    recent_scans_data = [
+    recent_audits_data = [
         {
-            "id": str(s.id),
-            "name": s.name,
-            "status": s.status.value,
-            "grade": s.grade,
-            "score": s.score,
-            "created_at": s.created_at.isoformat(),
+            "id":          str(s.id),
+            "target_name": s.target.name if s.target else "Unknown",
+            "target_host": s.target.host if s.target else "",
+            "status":      s.status if isinstance(s.status, str) else s.status.value,
+            "grade":       s.grade,
+            "score":       s.score,
+            "findings_summary": s.findings_summary,
+            "completed_at": s.completed_at.isoformat() if s.completed_at else None,
         }
-        for s in recent_scans
+        for s in recent_sessions
     ]
 
-    # Vulnerability trends (last 30 days)
+    # ── Tendances vulns (global, 7 jours seulement — 30 était inutilement lourd) ──
     vuln_trends = []
     today = datetime.utcnow().date()
-    for i in range(30, -1, -1):
-        date = today - timedelta(days=i)
-        date_start = datetime.combine(date, datetime.min.time())
-        date_end = datetime.combine(date, datetime.max.time())
-
-        # Count vulns discovered up to this date that were still open at that point
-        # For simplicity, we count vulns discovered by this date
-        critical = db.query(Vulnerability).filter(
-            Vulnerability.severity == Severity.CRITICAL,
-            Vulnerability.discovered_at <= date_end,
-        ).count()
-        high = db.query(Vulnerability).filter(
-            Vulnerability.severity == Severity.HIGH,
-            Vulnerability.discovered_at <= date_end,
-        ).count()
-        medium = db.query(Vulnerability).filter(
-            Vulnerability.severity == Severity.MEDIUM,
-            Vulnerability.discovered_at <= date_end,
-        ).count()
-        low = db.query(Vulnerability).filter(
-            Vulnerability.severity == Severity.LOW,
-            Vulnerability.discovered_at <= date_end,
-        ).count()
-
+    for i in range(6, -1, -1):
+        d     = today - timedelta(days=i)
+        d_end = datetime.combine(d, datetime.max.time())
         vuln_trends.append(VulnTrend(
-            date=date.isoformat(),
-            critical=critical,
-            high=high,
-            medium=medium,
-            low=low,
+            date=d.isoformat(),
+            critical=db.query(Vulnerability).filter(
+                Vulnerability.severity == Severity.CRITICAL,
+                Vulnerability.discovered_at <= d_end,
+            ).count(),
+            high=db.query(Vulnerability).filter(
+                Vulnerability.severity == Severity.HIGH,
+                Vulnerability.discovered_at <= d_end,
+            ).count(),
+            medium=db.query(Vulnerability).filter(
+                Vulnerability.severity == Severity.MEDIUM,
+                Vulnerability.discovered_at <= d_end,
+            ).count(),
+            low=db.query(Vulnerability).filter(
+                Vulnerability.severity == Severity.LOW,
+                Vulnerability.discovered_at <= d_end,
+            ).count(),
         ))
 
-    stats = DashboardStats(
-        total_assets=total_assets,
-        active_assets=active_assets,
-        total_vulnerabilities=total_vulns,
-        open_vulnerabilities=open_vulns,
-        critical_vulnerabilities=critical_vulns,
-        high_vulnerabilities=high_vulns,
-        total_scans=total_scans,
-        completed_scans=completed_scans,
-        running_scans=running_scans,
-        average_score=average_score,
-        last_scan_date=last_scan_date,
-    )
-
     return DashboardResponse(
-        stats=stats,
+        stats=DashboardStats(
+            total_assets=total_assets,
+            active_assets=active_assets,
+            total_vulnerabilities=total_vulns,
+            open_vulnerabilities=open_vulns,
+            critical_vulnerabilities=critical_vulns,
+            high_vulnerabilities=high_vulns,
+            total_hardening_sessions=total_sessions,
+            completed_hardening_sessions=completed_sessions,
+            running_hardening_sessions=running_sessions,
+            average_hardening_score=average_score,
+            last_audit_date=last_audit_date,
+        ),
         vuln_by_severity=vuln_by_severity,
         vuln_by_status=vuln_by_status,
         assets_by_type=assets_by_type,
-        recent_scans=recent_scans_data,
+        recent_audits=recent_audits_data,
         vuln_trends=vuln_trends,
+        scope="global" if is_admin else "own",
+        user_role=current_user.role.value,
     )

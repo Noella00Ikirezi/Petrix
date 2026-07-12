@@ -379,7 +379,7 @@ async def receive_agent_results(
     hosts = data.get("hosts", [])
     findings = data.get("findings", [])
 
-    # Auto-create or update assets for each discovered host
+    # Auto-create or update assets for each discovered host, then link to this scan
     assets_created = 0
     for host in hosts:
         ip = host.get("ip")
@@ -396,6 +396,7 @@ async def receive_agent_results(
                 mac_address=host.get("mac"),
                 hostname=host.get("hostname"),
                 os=host.get("os"),
+                last_scan_id=scan_id,
             )
             db.add(asset)
             assets_created += 1
@@ -407,6 +408,7 @@ async def receive_agent_results(
                 existing.os = host["os"]
             if host.get("mac"):
                 existing.mac_address = host["mac"]
+            existing.last_scan_id = scan_id
 
     updated_config = dict(scan.config or {})
     updated_config["_results"] = {"hosts": hosts, "findings": findings}
@@ -414,6 +416,34 @@ async def receive_agent_results(
     scan.status = ScanStatus.RUNNING
     db.commit()
     return {"ok": True, "assets_created": assets_created}
+
+
+@router.get("/{scan_id}/assets", status_code=status.HTTP_200_OK)
+async def get_scan_assets(
+    scan_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SCAN_VIEW)),
+):
+    """Return assets discovered/associated with a specific scan."""
+    from app.infrastructure.database.models import Asset as AssetModel
+    scan = db.query(Scan).filter(Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    assets = db.query(AssetModel).filter(AssetModel.last_scan_id == scan_id).all()
+    return [
+        {
+            "id": str(a.id),
+            "name": a.name,
+            "ip_address": a.ip_address,
+            "hostname": a.hostname,
+            "os": a.os,
+            "asset_type": a.asset_type,
+            "status": a.status,
+            "last_seen": a.last_seen.isoformat() if a.last_seen else None,
+        }
+        for a in assets
+    ]
 
 
 @router.patch("/{scan_id}/agent-complete", status_code=status.HTTP_200_OK)

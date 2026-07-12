@@ -6,6 +6,12 @@ import { Toaster } from 'react-hot-toast';
 import App from './App';
 import './index.css';
 
+// Dark mode par défaut
+if (localStorage.getItem('darkMode') !== 'false') {
+  document.documentElement.classList.add('dark');
+  if (!localStorage.getItem('darkMode')) localStorage.setItem('darkMode', 'true');
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
