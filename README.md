@@ -1,7 +1,7 @@
 # Petrix — Plateforme d'audit cybersécurité
 
 **Projet annuel ESGI 4SI4 · 2025–2026**  
-Binôme : Noëlla IKIREZI & Mathieu MISSAK · Tuteur : Christophe NEY
+Binôme : Noëlla IKIREZI & Mathieu MISSAK · Tuteur : Geoffrey Lavigne
 
 ---
 
@@ -81,4 +81,5 @@ make dev                # Démarre tous les containers Docker
 
 ---
 
-> Projet réalisé dans le cadre du projet annuel ESGI 4ème année — Spécialité Sécurité Informatique (4SI4)
+> Projet réalisé dans le cadre du projet annuel ESGI 4ème année — Spécialité Sécurité Informatique (4SI4)  
+> Noëlla IKIREZI & Mathieu MISSAK
