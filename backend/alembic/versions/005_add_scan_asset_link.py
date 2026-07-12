@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
 revision = "005_add_scan_asset_link"
-down_revision = "004_add_pentest"
+down_revision = "001_initial_schema"
 branch_labels = None
 depends_on = None
 
