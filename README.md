@@ -1,58 +1,84 @@
 # Petrix — Plateforme d'audit cybersécurité
 
-> Projet annuel ESGI 4SI4 · Binôme : Noëlla IKIREZI & Mathieu MISSAK · Tuteur : Christophe NEY
+**Projet annuel ESGI 4SI4 · 2025–2026**  
+Binôme : Noëlla IKIREZI & Mathieu MISSAK · Tuteur : Christophe NEY
 
-Petrix est une plateforme SaaS self-hosted d'audit de sécurité informatique.
+---
 
-## Fonctionnalités
+## Présentation
 
-- **Hardening (HCO)** — Audit ANSSI-BP-028 sur Linux, macOS, Windows (80+ contrôles) avec score A–F, CVE associées et rapport Mistral AI
-- **Inventaire** — Gestion des actifs réseau (CRUD + scans nmap automatisés)
-- **Vulnérabilités** — Suivi CVE avec flux CERT-FR en temps réel et corrélations automatiques
-- **RBAC** — 4 rôles : VIEWER < ANALYST < AUDITOR < ADMIN
-- **MFA** — Authentification 2FA par email OTP
+Petrix est une plateforme SaaS self-hosted conçue pour les auditeurs et équipes sécurité. Elle centralise l'audit de durcissement des systèmes (Linux, macOS, Windows), la gestion des vulnérabilités et la veille CERT-FR dans une interface unifiée.
 
-## Stack
+L'objectif est de permettre à un auditeur de lancer un audit de configuration depuis l'interface, obtenir un score de conformité référencé aux normes ANSSI et CIS, identifier les écarts prioritaires avec leur impact en points, et générer un rapport IA exploitable.
+
+**Accès à la plateforme :** [https://petrix.noellahome.org](https://petrix.noellahome.org)
+
+---
+
+## Fonctionnalités principales
+
+| Module | Description |
+|--------|-------------|
+| **Hardening (HCO)** | Audit de durcissement sur Linux, macOS, Windows — 80+ contrôles, score A–F, référencés ANSSI-BP-028 / CIS Benchmarks |
+| **Rapport d'audit** | Écarts classés par sévérité avec impact en points (−15/−8/−3/−1), conformité multi-norme, analyse Mistral AI |
+| **Vulnérabilités** | Suivi des CVE détectées, veille CERT-FR en temps réel, liens NVD / MITRE / CVE.org |
+| **Inventaire réseau** | Gestion des actifs avec scans nmap automatisés via Celery |
+| **Gestion des accès** | RBAC 4 niveaux (VIEWER / ANALYST / AUDITOR / ADMIN) + MFA par OTP email |
+| **Audit trail** | Journalisation de toutes les actions utilisateurs |
+
+---
+
+## Stack technique
 
 | Couche | Technologie |
 |--------|-------------|
-| Backend API | FastAPI 0.109 · Python 3.11 · Uvicorn |
+| Backend | FastAPI · Python 3.11 · Uvicorn |
 | Base de données | PostgreSQL (AWS RDS) · SQLAlchemy 2.0 · Alembic |
 | File d'attente | Celery 5.3 · Redis 7 |
-| Frontend | React 18 · TypeScript 5.3 · Vite 5 · Tailwind CSS 3.4 |
-| IA | Mistral AI (clé via AWS SSM SecureString) |
-| Infrastructure | Docker Compose · AWS EC2 (t3.small, eu-west-1) · Nginx |
+| Frontend | React 18 · TypeScript · Vite · Tailwind CSS |
+| IA | Mistral AI — clé stockée dans AWS SSM SecureString |
+| Infrastructure | Docker Compose · AWS EC2 eu-west-1 · Nginx |
 
-## Déploiement production
+---
 
-```
-https://petrix.noellahome.org
-```
-
-## Lancer en local (dev)
-
-```bash
-cp .env.example .env      # configurer les variables
-make dev                  # lance tous les containers Docker
-```
-
-## Structure
+## Architecture
 
 ```
 backend/
   app/
-    api/v1/        # endpoints REST (auth, hardening, vulns, assets, feed…)
-    core/          # sécurité JWT, RBAC, audit trail
-    hardening/     # moteur HCO + agents shell (linux.sh, macos.sh, windows.ps1)
-    infrastructure/database/  # modèles SQLAlchemy + connexion
-    workers/       # tâches Celery (hardening, scan, email)
-  alembic/versions/          # migrations de schéma
+    api/v1/          # Endpoints REST
+    core/            # JWT, RBAC, audit trail, email
+    hardening/       # Moteur HCO + agents (linux.sh, macos.sh, windows.ps1)
+    workers/         # Tâches Celery (hardening, scans, email)
+    infrastructure/  # Modèles SQLAlchemy, connexion DB
+
 frontend/
   src/
-    api/           # client Axios + endpoints
-    pages/         # pages React (Dashboard, Hardening, Vulns…)
-    stores/        # état global Zustand
-    components/    # layout (Sidebar, Header)
-    data/          # base de connaissances HCO
-docker/            # docker-compose.prod.yml · nginx.prod.conf
+    pages/           # Dashboard, Hardening, Vulnérabilités, Rapport, Actifs…
+    api/             # Client Axios
+    stores/          # État global Zustand
+
+docker/              # docker-compose.prod.yml · nginx.prod.conf
 ```
+
+---
+
+## Lancer en local
+
+```bash
+cp .env.template .env   # Remplir les variables
+make dev                # Démarre tous les containers Docker
+```
+
+---
+
+## Livrables
+
+- **Code source** — dépôt GitHub (branche `main`)
+- **Plateforme déployée** — [https://petrix.noellahome.org](https://petrix.noellahome.org)
+- **Rapport d'activité** — document détaillant les choix techniques et le travail réalisé
+- **Soutenance** — présentation ESGI · 26 juillet 2026
+
+---
+
+> Projet réalisé dans le cadre du projet annuel ESGI 4ème année — Spécialité Sécurité Informatique (4SI4)
