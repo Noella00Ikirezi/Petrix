@@ -174,6 +174,34 @@ function formatDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// ─── Remediation helpers ──────────────────────────────────────────────────────
+
+function isShellCommand(text: string): boolean {
+  if (!text) return false;
+  return /^(sudo|systemctl|sed|echo|chmod|chown|ufw|iptables|nft\b|firewall-cmd|passwd|usermod|groupmod|apt|yum|dnf|brew|sysctl|auditctl|service|mkdir|cp|mv|rm|cat|tee|update-alternatives)\b|&&|\|\||>>/m
+    .test(text.trim());
+}
+
+function getPrivilegeBadge(cmd: string): { label: string; cls: string } {
+  const needsRoot = /\/(etc|sys|usr|boot|lib|sbin)\//i.test(cmd) ||
+    /\b(systemctl|iptables|ufw|nft|firewall-cmd|auditctl|sysctl|usermod|groupmod|passwd|sed -i|chmod|chown)\b/.test(cmd);
+  return needsRoot
+    ? { label: 'Nécessite root / sudo', cls: 'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-700 dark:bg-orange-900/20 dark:text-orange-300' }
+    : { label: 'Utilisateur standard', cls: 'border-gray-300 bg-gray-50 text-gray-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400' };
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1800); }}
+      className="rounded px-2 py-0.5 text-xs font-medium bg-blue-200 hover:bg-blue-300 text-blue-800 dark:bg-blue-800 dark:hover:bg-blue-700 dark:text-blue-200 transition-colors shrink-0"
+    >
+      {copied ? '✓ Copié' : 'Copier'}
+    </button>
+  );
+}
+
 // ─── FindingCard ─────────────────────────────────────────────────────────────
 
 /**
@@ -236,14 +264,37 @@ function FindingCard({ f }: { f: Finding }) {
             </div>
           </div>
 
-          {f.remediation && !isPassed && (
-            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3">
-              <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1">
-                <Terminal className="h-3 w-3" /> Remédiation
-              </p>
-              <pre className="text-xs text-blue-900 dark:text-blue-200 whitespace-pre-wrap font-mono leading-relaxed">{f.remediation}</pre>
-            </div>
-          )}
+          {f.remediation && !isPassed && (() => {
+            const isCmd = isShellCommand(f.remediation!);
+            const priv  = isCmd ? getPrivilegeBadge(f.remediation!) : null;
+            return (
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 space-y-2">
+                {/* Header */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                    <Terminal className="h-3 w-3" />
+                    {isCmd ? 'Commande de remédiation' : 'Remédiation'}
+                  </p>
+                  {priv && (
+                    <span className={`rounded border px-2 py-0.5 text-xs font-medium ${priv.cls}`}>
+                      {priv.label}
+                    </span>
+                  )}
+                </div>
+                {/* Command or text */}
+                {isCmd ? (
+                  <div className="rounded bg-blue-100/60 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 p-2">
+                    <div className="flex items-start gap-2">
+                      <pre className="flex-1 text-xs text-blue-900 dark:text-blue-200 whitespace-pre-wrap font-mono leading-relaxed break-all">{f.remediation}</pre>
+                      <CopyButton text={f.remediation!} />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">{f.remediation}</p>
+                )}
+              </div>
+            );
+          })()}
 
           {f.cve_ids && f.cve_ids.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
