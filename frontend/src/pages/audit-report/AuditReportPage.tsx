@@ -202,6 +202,315 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ─── Remediation metadata ────────────────────────────────────────────────────
+
+interface RemMeta {
+  explanation: string;
+  impact?: string;
+  prerequisites?: string[];
+  links?: { label: string; url: string }[];
+}
+
+function getRemediationMeta(cmd: string, module: string, checkName: string): RemMeta | null {
+  if (!cmd || !isShellCommand(cmd)) return null;
+  const m = (module ?? '').toLowerCase();
+  const c = cmd.toLowerCase();
+  const cn = (checkName ?? '').toLowerCase();
+
+  if (m === 'ssh' || c.includes('sshd') || c.includes('ssh_config') || c.includes('/etc/ssh')) {
+    const restartsSSH = c.includes('systemctl restart sshd') || c.includes('service ssh restart') || c.includes('service sshd restart');
+    return {
+      explanation: c.includes('sed -i')
+        ? 'Modifie directement la directive dans /etc/ssh/sshd_config via sed, puis redémarre le démon SSH pour appliquer le changement.'
+        : c.includes('echo')
+        ? 'Ajoute la directive manquante à la fin de /etc/ssh/sshd_config et redémarre SSH.'
+        : 'Configure le service SSH selon les recommandations ANSSI-BP-028.',
+      impact: restartsSSH
+        ? 'Redémarre sshd — toutes les sessions SSH actives seront coupées. Gardez une console ou un accès IPMI ouvert avant d\'exécuter.'
+        : undefined,
+      prerequisites: [
+        'Accès root ou sudo sur la machine cible',
+        'Sauvegarder la config : cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak',
+        restartsSSH ? 'Avoir un accès console/IPMI de secours en cas de perte de connexion SSH' : '',
+        'Valider la syntaxe après édition : sshd -t',
+      ].filter(Boolean) as string[],
+      links: [
+        { label: 'ANSSI BP-028 — SSH', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+        { label: 'sshd_config(5)', url: 'https://man7.org/linux/man-pages/man5/sshd_config.5.html' },
+        { label: 'CIS SSH Benchmark', url: 'https://www.cisecurity.org/benchmark/distribution_independent_linux' },
+      ],
+    };
+  }
+
+  if (m === 'firewall' || c.includes('ufw') || c.includes('iptables') || c.includes('nft ') || c.includes('firewall-cmd')) {
+    const drops = c.includes('deny') || c.includes('drop') || c.includes('reject') || c.includes('-p input drop');
+    return {
+      explanation: c.includes('ufw enable')
+        ? 'Active le pare-feu UFW avec l\'ensemble des règles actuellement définies.'
+        : drops
+        ? 'Définit la politique par défaut pour rejeter tout trafic entrant non explicitement autorisé.'
+        : 'Configure une règle de filtrage réseau sur le pare-feu système.',
+      impact: 'Peut bloquer du trafic légitime si les règles d\'autorisation ne sont pas définies au préalable. Vérifiez que SSH (port 22) et vos services critiques sont autorisés avant d\'activer le blocage par défaut.',
+      prerequisites: [
+        'Lister les règles actuelles : ufw status verbose  (ou iptables -L -n -v)',
+        'S\'assurer que le port SSH est autorisé : ufw allow 22/tcp',
+        'Tester en environnement de préproduction si possible',
+      ],
+      links: [
+        { label: 'ANSSI — Filtrage réseau', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+        { label: 'UFW documentation', url: 'https://help.ubuntu.com/community/UFW' },
+        { label: 'iptables(8)', url: 'https://man7.org/linux/man-pages/man8/iptables.8.html' },
+      ],
+    };
+  }
+
+  if (m === 'users' || c.includes('passwd') || c.includes('usermod') || c.includes('userdel') || c.includes('groupmod')) {
+    const locks = c.includes('usermod -l') || c.includes('usermod --lock') || c.includes('passwd -l');
+    const deletes = c.includes('userdel');
+    return {
+      explanation: locks
+        ? 'Verrouille le compte utilisateur — il ne pourra plus se connecter par mot de passe.'
+        : deletes
+        ? 'Supprime définitivement le compte utilisateur et ses fichiers associés si --remove est utilisé.'
+        : c.includes('passwd')
+        ? 'Modifie les paramètres du mot de passe (expiration, longueur minimale) pour renforcer la politique d\'authentification.'
+        : 'Modifie les propriétés du compte utilisateur système.',
+      impact: (locks || deletes)
+        ? 'L\'utilisateur concerné sera immédiatement déconnecté de toute session active.'
+        : undefined,
+      prerequisites: [
+        'Vérifier les processus actifs de cet utilisateur : ps aux | grep <username>',
+        'S\'assurer que l\'utilisateur n\'exécute pas de service critique',
+      ],
+      links: [
+        { label: 'ANSSI — Comptes (R30-R44)', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+        { label: 'usermod(8)', url: 'https://man7.org/linux/man-pages/man8/usermod.8.html' },
+        { label: 'passwd(1)', url: 'https://man7.org/linux/man-pages/man1/passwd.1.html' },
+      ],
+    };
+  }
+
+  if (m === 'filesystem' || c.includes('chmod') || c.includes('chown') || cn.includes('suid') || cn.includes('sgid')) {
+    const touchesBin = /\/(s?bin|usr\/s?bin|usr\/lib)/.test(c);
+    return {
+      explanation: c.includes('chmod')
+        ? 'Modifie les permissions d\'accès (lecture/écriture/exécution) sur le fichier ou répertoire ciblé.'
+        : c.includes('chown')
+        ? 'Change le propriétaire et/ou le groupe du fichier ou répertoire ciblé.'
+        : 'Sécurise les permissions du système de fichiers selon ANSSI-BP-028.',
+      impact: touchesBin
+        ? 'Modifier des permissions sur des binaires système peut empêcher leur exécution. Vérifiez les valeurs cibles avant d\'appliquer.'
+        : undefined,
+      prerequisites: [
+        'Vérifier les permissions actuelles : ls -la <fichier>',
+        'Sauvegarder les ACL si nécessaire : getfacl <fichier> > acl_backup.txt',
+      ],
+      links: [
+        { label: 'ANSSI — Système de fichiers', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+        { label: 'chmod(1)', url: 'https://man7.org/linux/man-pages/man1/chmod.1.html' },
+      ],
+    };
+  }
+
+  if (m === 'services' || (c.includes('systemctl') && (c.includes('disable') || c.includes('stop') || c.includes('mask')))) {
+    const svcMatch = cmd.match(/systemctl\s+\S+\s+(\S+)/);
+    const svc = svcMatch?.[1] ?? 'le service';
+    return {
+      explanation: c.includes('mask')
+        ? `Masque ${svc} — empêche tout démarrage, même manuel, jusqu\'à démaskage explicite.`
+        : c.includes('disable')
+        ? `Désactive ${svc} au démarrage automatique. Le service reste opérationnel jusqu\'au prochain redémarrage.`
+        : `Arrête immédiatement ${svc}.`,
+      impact: `${svc} sera arrêté ou désactivé. Vérifiez qu\'aucune application en production n\'en dépend.`,
+      prerequisites: [
+        `Vérifier les dépendances : systemctl list-dependencies ${svc}`,
+        `Vérifier l\'état actuel : systemctl status ${svc}`,
+      ],
+      links: [
+        { label: 'ANSSI — Services (R61-R68)', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+        { label: 'systemctl(1)', url: 'https://man7.org/linux/man-pages/man1/systemctl.1.html' },
+      ],
+    };
+  }
+
+  if (m === 'kernel' || c.includes('sysctl')) {
+    return {
+      explanation: 'Applique un paramètre noyau via sysctl. L\'effet est immédiat, sans redémarrage nécessaire.',
+      impact: 'Certains paramètres réseau (ex. net.ipv4.ip_forward) peuvent affecter le routage ou les connexions établies.',
+      prerequisites: [
+        'Consulter la valeur actuelle : sysctl <paramètre>',
+        'Pour rendre permanent : ajouter dans /etc/sysctl.d/99-security.conf puis sysctl --system',
+      ],
+      links: [
+        { label: 'ANSSI — Noyau', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+        { label: 'sysctl(8)', url: 'https://man7.org/linux/man-pages/man8/sysctl.8.html' },
+      ],
+    };
+  }
+
+  if (m === 'pam' || c.includes('pam') || cn.includes('pam')) {
+    return {
+      explanation: 'Modifie la configuration PAM (Pluggable Authentication Modules) qui gère les règles d\'authentification système.',
+      impact: 'Une mauvaise configuration PAM peut rendre le système complètement inaccessible. Ne fermez pas votre session root tant que vous n\'avez pas validé la config.',
+      prerequisites: [
+        'Garder une session root active pendant toute l\'opération',
+        'Sauvegarder les fichiers PAM : cp -r /etc/pam.d /etc/pam.d.bak',
+        'Tester l\'authentification dans un autre terminal avant de fermer la session courante',
+      ],
+      links: [
+        { label: 'ANSSI — Authentification', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+        { label: 'PAM(8)', url: 'https://man7.org/linux/man-pages/man8/pam.8.html' },
+      ],
+    };
+  }
+
+  if (m === 'logging' || c.includes('auditctl') || c.includes('auditd') || c.includes('rsyslog')) {
+    return {
+      explanation: 'Configure le système de journalisation ou d\'audit pour tracer les événements de sécurité système.',
+      prerequisites: [
+        'Vérifier que auditd est installé : which auditctl',
+        'Vérifier l\'espace disque disponible pour les logs : df -h /var/log',
+        'Pour rendre la règle permanente : ajouter dans /etc/audit/rules.d/',
+      ],
+      links: [
+        { label: 'ANSSI — Journalisation (R73-R82)', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+        { label: 'auditd(8)', url: 'https://man7.org/linux/man-pages/man8/auditd.8.html' },
+      ],
+    };
+  }
+
+  return {
+    explanation: 'Applique la correction de configuration recommandée par le contrôle ANSSI-BP-028.',
+    prerequisites: [
+      'Accès root ou sudo requis',
+      'Tester en préproduction avant de déployer en production',
+    ],
+    links: [
+      { label: 'ANSSI BP-028', url: 'https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/' },
+    ],
+  };
+}
+
+// ─── FindingAiChat ────────────────────────────────────────────────────────────
+
+const CHAT_SUGGESTIONS = [
+  'Quel est le risque si je ne corrige pas ?',
+  'Comment tester que la correction est appliquée ?',
+  'Existe-t-il une alternative moins impactante ?',
+  'Quel est l\'impact sur les performances ?',
+];
+
+function FindingAiChat({ sessionId, finding }: { sessionId: string; finding: Finding }) {
+  const [open, setOpen]     = useState(false);
+  const [question, setQ]    = useState('');
+  const [msgs, setMsgs]     = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
+  const [loading, setLoad]  = useState(false);
+  const inputRef            = useRef<HTMLInputElement>(null);
+  const bottomRef           = useRef<HTMLDivElement>(null);
+
+  if (finding.status === 'PASS') return null;
+
+  const send = async (q: string) => {
+    const text = q.trim();
+    if (!text || loading) return;
+    const ctx = `Concernant le finding "${finding.check_name}" (module ${finding.module}, sévérité ${finding.severity}) : ${text}`;
+    setMsgs(m => [...m, { role: 'user', text }]);
+    setQ('');
+    setLoad(true);
+    try {
+      const res = await hardeningApi.aiChat(sessionId, ctx);
+      setMsgs(m => [...m, { role: 'ai', text: res.answer }]);
+    } catch {
+      setMsgs(m => [...m, { role: 'ai', text: 'Erreur de communication avec l\'IA. Réessayez.' }]);
+    } finally {
+      setLoad(false);
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-violet-200 dark:border-violet-800 overflow-hidden">
+      <button
+        onClick={() => { setOpen(o => !o); setTimeout(() => inputRef.current?.focus(), 120); }}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/50 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium text-violet-700 dark:text-violet-400">
+          <Sparkles className="h-4 w-4" />
+          Poser une question à l'IA sur cet écart
+          {msgs.length > 0 && (
+            <span className="rounded-full bg-violet-200 dark:bg-violet-800 px-1.5 py-0.5 text-xs font-bold text-violet-700 dark:text-violet-300">
+              {Math.ceil(msgs.length / 2)}
+            </span>
+          )}
+        </span>
+        {open ? <ChevronDown className="h-4 w-4 text-violet-400 shrink-0" /> : <ChevronRight className="h-4 w-4 text-violet-400 shrink-0" />}
+      </button>
+
+      {open && (
+        <div className="bg-white dark:bg-gray-900 p-4 space-y-3 border-t border-violet-100 dark:border-violet-900">
+          {/* Suggestion pills */}
+          {msgs.length === 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {CHAT_SUGGESTIONS.map(s => (
+                <button key={s} onClick={() => send(s)}
+                  className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs text-violet-600 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-400 dark:hover:bg-violet-950/50 transition-colors">
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Message history */}
+          {msgs.length > 0 && (
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+              {msgs.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[88%] rounded-xl px-3 py-2 text-xs leading-relaxed whitespace-pre-line ${
+                    msg.role === 'user'
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="rounded-xl bg-gray-100 dark:bg-gray-800 px-3 py-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+                  </div>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="flex gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={question}
+              onChange={e => setQ(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') send(question); }}
+              placeholder="Ex : Comment vérifier que la correction est appliquée ?"
+              className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:focus:ring-violet-600"
+              disabled={loading}
+            />
+            <button
+              onClick={() => send(question)}
+              disabled={!question.trim() || loading}
+              className="rounded-lg bg-violet-600 px-3 py-2 text-white hover:bg-violet-700 disabled:opacity-40 transition-colors"
+            >
+              <Send className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── FindingCard ─────────────────────────────────────────────────────────────
 
 /**
@@ -209,13 +518,14 @@ function CopyButton({ text }: { text: string }) {
  * la remédiation en ligne de commande, les CVE liées et les références ANSSI-BP-028.
  * @param f - Finding issu du rapport d'audit.
  */
-function FindingCard({ f }: { f: Finding }) {
+function FindingCard({ f, sessionId }: { f: Finding; sessionId: string }) {
   const [open, setOpen] = useState(false);
   const sev = SEV[f.severity] ?? SEV.INFO;
   const SevIcon = sev.icon;
   const norms = NORM_MAP[f.module?.toLowerCase()] ?? [];
   const isPassed = f.status === 'PASS';
   const isDanger = isDangerousPort(f);
+  const meta = f.remediation && !isPassed ? getRemediationMeta(f.remediation, f.module, f.check_name) : null;
 
   return (
     <div className={`rounded-xl border-l-4 ${sev.border} ${sev.bg} border border-gray-200 dark:border-gray-700 overflow-hidden`}>
@@ -296,6 +606,55 @@ function FindingCard({ f }: { f: Finding }) {
             );
           })()}
 
+          {/* Static remediation metadata */}
+          {meta && (
+            <div className="space-y-2">
+              {/* Explanation */}
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Ce que fait cette commande</p>
+                <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{meta.explanation}</p>
+              </div>
+
+              {/* Service impact */}
+              {meta.impact && (
+                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> Impact sur les services
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">{meta.impact}</p>
+                </div>
+              )}
+
+              {/* Prerequisites */}
+              {meta.prerequisites && meta.prerequisites.length > 0 && (
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Prérequis</p>
+                  <ul className="space-y-1">
+                    {meta.prerequisites.map((p, i) => (
+                      <li key={i} className="flex gap-2 text-xs text-gray-600 dark:text-gray-400">
+                        <span className="shrink-0 text-gray-300 dark:text-gray-600">›</span>
+                        <code className="leading-relaxed">{p}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Links */}
+              {meta.links && meta.links.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-gray-400">Aller plus loin :</span>
+                  {meta.links.map(l => (
+                    <a key={l.url} href={l.url} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1 rounded-md bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition-colors">
+                      <ExternalLink className="h-3 w-3" /> {l.label}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {f.cve_ids && f.cve_ids.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 self-center">CVE :</span>
@@ -327,6 +686,9 @@ function FindingCard({ f }: { f: Finding }) {
               })}
             </div>
           )}
+
+          {/* Inline AI chat */}
+          <FindingAiChat sessionId={sessionId} finding={f} />
         </div>
       )}
     </div>
@@ -1012,7 +1374,7 @@ export default function AuditReportPage() {
                   <h3 className={`text-xs font-bold uppercase tracking-widest ${SEV[sev as keyof typeof SEV].color}`}>
                     {SEV[sev as keyof typeof SEV].label} · {list.length}
                   </h3>
-                  {list.map(f => <FindingCard key={f.id} f={f} />)}
+                  {list.map(f => <FindingCard key={f.id} f={f} sessionId={sessionId ?? session.id} />)}
                 </div>
               ))}
             </>
