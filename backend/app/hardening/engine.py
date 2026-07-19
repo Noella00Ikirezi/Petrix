@@ -1,15 +1,13 @@
 """Moteur principal HCO (Hardening Configuration Operator).
 
-Orchestre l'exécution des modules d'audit sur une cible distante via SSH,
-aggrège les findings, calcule le score ANSSI-BP-028 (0–100) et la note A–F.
+Agrège les findings issus de l'agent local, calcule le score ANSSI-BP-028 (0–100)
+et la note A–F. L'audit s'exécute localement via les scripts agents (linux.sh,
+macos.sh, windows.ps1) — aucune connexion SSH n'est établie par ce module.
 """
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Callable, Optional
 
-from app.hardening.ssh_connector import SSHConnector
 from app.hardening.modules.linux import (
     audit_ssh,
     audit_users,
@@ -106,120 +104,3 @@ def _compute_score(findings: list[dict]) -> tuple[float, str]:
     return round(score, 1), grade
 
 
-def run_hardening_audit(
-    host: str,
-    port: int = 22,
-    username: str = "root",
-    password: Optional[str] = None,
-    key_path: Optional[str] = None,
-    os_type: str = "linux",
-    modules: Optional[list[str]] = None,
-    rules: Optional[dict] = None,
-    progress_callback: Optional[Callable[[str, int], None]] = None,
-) -> dict:
-    """Lance un audit HCO complet via SSH et retourne les résultats agrégés.
-
-    Se connecte à la cible, exécute chaque module d'audit demandé dans l'ordre,
-    puis calcule le score global et la note A–F selon la grille de sévérité HCO.
-    La connexion SSH est fermée dans un bloc ``finally`` même en cas d'erreur.
-
-    Args:
-        host: Adresse IP ou nom DNS de la cible.
-        port: Port SSH (défaut : 22).
-        username: Compte SSH à utiliser (défaut : root).
-        password: Mot de passe SSH (mutuellement exclusif avec key_path).
-        key_path: Chemin vers la clé privée SSH (prend la priorité sur password).
-        os_type: Type de système cible — ``"linux"``, ``"macos_intel"``
-                 ou ``"macos_silicon"``.
-        modules: Liste de noms de modules à exécuter ; ``None`` = tous les modules
-                 disponibles pour l'os_type.
-        rules: Surcharge des règles par défaut (ex. ``{"max_auth_tries": 3}``).
-        progress_callback: Callable optionnel ``(module_name, percent)`` appelé
-                           après chaque module pour signaler l'avancement.
-
-    Returns:
-        dict avec les clés :
-            host (str), os_type (str), modules_completed (list[str]),
-            all_findings (list[dict]), all_passed (list[dict]),
-            score (float), grade (str), findings_summary (dict),
-            total_checks (int), passed_checks (int),
-            module_results (dict), error (str | None).
-        En cas d'erreur précoce (os_type inconnu, échec SSH), seul ``error``
-        est renseigné.
-    """
-    available = OS_MODULE_MAP.get(os_type)
-    if available is None:
-        return {
-            "error": f"OS type '{os_type}' not supported. Supported: {SUPPORTED_OS_TYPES}"
-        }
-
-    default_mods = DEFAULT_MODULES_BY_OS[os_type]
-    active_modules = [m for m in (modules or default_mods) if m in available]
-    effective_rules = {**DEFAULT_RULES, **(rules or {})}
-
-    connector = SSHConnector(
-        host=host,
-        port=port,
-        username=username,
-        password=password,
-        key_file=Path(key_path) if key_path else None,
-    )
-
-    if not connector.connect():
-        return {"error": f"SSH connection to {host}:{port} failed — check host, port, credentials."}
-
-    all_findings: list[dict] = []
-    all_passed: list[dict] = []
-    module_results: dict = {}
-    completed: list[str] = []
-
-    try:
-        for i, module_name in enumerate(active_modules):
-            if progress_callback:
-                progress_callback(module_name, int((i / len(active_modules)) * 90) + 5)
-
-            audit_mod = available[module_name]
-            try:
-                result = audit_mod.run_audit(connector, effective_rules)
-            except Exception as exc:
-                logger.error("Module %s failed on %s: %s", module_name, host, exc)
-                result = {
-                    "findings": [],
-                    "passed": [],
-                    "summary": {"total_checks": 0, "passed": 0, "failed": 0, "error": str(exc)},
-                }
-
-            for item in result.get("findings", []):
-                item["module"] = module_name
-            for item in result.get("passed", []):
-                item["module"] = module_name
-
-            module_results[module_name] = result
-            all_findings.extend(result.get("findings", []))
-            all_passed.extend(result.get("passed", []))
-            completed.append(module_name)
-
-    finally:
-        connector.disconnect()
-
-    score, grade = _compute_score(all_findings)
-
-    findings_summary: dict[str, int] = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
-    for f in all_findings:
-        sev = f.get("severity", "INFO").upper()
-        findings_summary[sev] = findings_summary.get(sev, 0) + 1
-
-    return {
-        "host": host,
-        "os_type": os_type,
-        "modules_completed": completed,
-        "all_findings": all_findings,
-        "all_passed": all_passed,
-        "score": score,
-        "grade": grade,
-        "findings_summary": findings_summary,
-        "total_checks": len(all_findings) + len(all_passed),
-        "passed_checks": len(all_passed),
-        "module_results": module_results,
-        "error": None,
-    }

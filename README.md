@@ -22,7 +22,7 @@ L'objectif est de permettre à un auditeur de lancer un audit de configuration d
 | **Hardening (HCO)** | Audit de durcissement sur Linux, macOS, Windows — 80+ contrôles, score A–F, référencés ANSSI-BP-028 / CIS Benchmarks |
 | **Rapport d'audit** | Écarts classés par sévérité avec impact en points (−15/−8/−3/−1), conformité multi-norme, analyse Mistral AI |
 | **Vulnérabilités** | Suivi des CVE détectées, veille CERT-FR en temps réel, liens NVD / MITRE / CVE.org |
-| **Inventaire réseau** | Gestion des actifs avec scans nmap automatisés via Celery |
+| **Inventaire réseau** | Gestion des actifs et suivi de l'inventaire des systèmes audités |
 | **Gestion des accès** | RBAC 4 niveaux (VIEWER / ANALYST / AUDITOR / ADMIN) + MFA par OTP email |
 | **Audit trail** | Journalisation de toutes les actions utilisateurs |
 
@@ -49,7 +49,7 @@ backend/
     api/v1/          # Endpoints REST
     core/            # JWT, RBAC, audit trail, email
     hardening/       # Moteur HCO + agents (linux.sh, macos.sh, windows.ps1)
-    workers/         # Tâches Celery (hardening, scans, email)
+    workers/         # Tâches Celery (email)
     infrastructure/  # Modèles SQLAlchemy, connexion DB
 
 frontend/
