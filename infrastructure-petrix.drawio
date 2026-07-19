@@ -1,0 +1,168 @@
+<mxfile host="65bd71144e">
+    <diagram id="6qdnmOKAG_LjapwQVqqF" name="Page-1">
+        <mxGraphModel dx="1019" dy="746" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2600" pageHeight="1650" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=26;fontStyle=1;" value="Petrix — Architecture Infrastructure" vertex="1">
+                    <mxGeometry height="50" width="1300" x="650" y="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=13;fontColor=#666666;" value="ESGI 4SI4  ·  Noëlla IKIREZI &amp; Mathieu MISSAK  ·  2026" vertex="1">
+                    <mxGeometry height="24" width="1300" x="650" y="66" as="geometry"/>
+                </mxCell>
+                <mxCell id="user" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="&lt;b&gt;🌐 Utilisateur&lt;/b&gt;&lt;br/&gt;Navigateur web&lt;br/&gt;petrix.noellahome.org" vertex="1">
+                    <mxGeometry height="110" width="200" x="30" y="560" as="geometry"/>
+                </mxCell>
+                <mxCell id="cf_bg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbea;strokeColor=#e8a800;strokeWidth=2;" value="" vertex="1">
+                    <mxGeometry height="380" width="210" x="290" y="430" as="geometry"/>
+                </mxCell>
+                <mxCell id="cf_h" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=16;fontStyle=1;fontColor=#9a6500;" value="☁️  Cloudflare" vertex="1">
+                    <mxGeometry height="30" width="210" x="290" y="440" as="geometry"/>
+                </mxCell>
+                <mxCell id="cf_dns" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffd966;strokeColor=#c8a200;fontSize=13;fontStyle=1;" value="DNS" vertex="1">
+                    <mxGeometry height="55" width="84" x="308" y="488" as="geometry"/>
+                </mxCell>
+                <mxCell id="cf_cdn" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffd966;strokeColor=#c8a200;fontSize=13;fontStyle=1;" value="CDN" vertex="1">
+                    <mxGeometry height="55" width="84" x="406" y="488" as="geometry"/>
+                </mxCell>
+                <mxCell id="cf_ssl" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffd966;strokeColor=#c8a200;fontSize=13;fontStyle=1;" value="SSL / TLS" vertex="1">
+                    <mxGeometry height="55" width="84" x="308" y="558" as="geometry"/>
+                </mxCell>
+                <mxCell id="cf_waf" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffd966;strokeColor=#c8a200;fontSize=13;fontStyle=1;" value="WAF" vertex="1">
+                    <mxGeometry height="55" width="84" x="406" y="558" as="geometry"/>
+                </mxCell>
+                <mxCell id="cf_ddos" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffd966;strokeColor=#c8a200;fontSize=13;" value="DDoS Protection" vertex="1">
+                    <mxGeometry height="55" width="182" x="308" y="628" as="geometry"/>
+                </mxCell>
+                <mxCell id="cf_note" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#777;" value="→ 3.255.126.244 (EC2)" vertex="1">
+                    <mxGeometry height="24" width="210" x="290" y="692" as="geometry"/>
+                </mxCell>
+                <mxCell id="aws_reg" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdf6ee;strokeColor=#ec7211;strokeWidth=3;verticalAlign=top;fontSize=17;fontStyle=1;fontColor=#c55000;" value="AWS  —  eu-west-1 (Ireland)" vertex="1">
+                    <mxGeometry height="1240" width="1450" x="550" y="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ec2_box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8f3;strokeColor=#ec7211;strokeWidth=2;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#c55000;" value="EC2  ·  t3.small  ·  i-0fc0adfd256c0428d  ·  3.255.126.244" vertex="1">
+                    <mxGeometry height="1010" width="860" x="590" y="168" as="geometry"/>
+                </mxCell>
+                <mxCell id="docker_lbl" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=14;fontStyle=1;fontColor=#0db7ed;" value="🐳  Docker Compose — 5 conteneurs" vertex="1">
+                    <mxGeometry height="30" width="380" x="630" y="228" as="geometry"/>
+                </mxCell>
+                <mxCell id="nginx" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#5b9a50;fontSize=13;" value="&lt;b&gt;petrix-nginx&lt;/b&gt;&lt;br/&gt;nginx : alpine&lt;br/&gt;Port 80  —  point d&#39;entrée public" vertex="1">
+                    <mxGeometry height="110" width="260" x="630" y="278" as="geometry"/>
+                </mxCell>
+                <mxCell id="frontend" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" value="&lt;b&gt;petrix-frontend&lt;/b&gt;&lt;br/&gt;React 18  ·  TypeScript 5.3&lt;br/&gt;Build Vite  ·  Dockerfile.prod" vertex="1">
+                    <mxGeometry height="110" width="260" x="630" y="460" as="geometry"/>
+                </mxCell>
+                <mxCell id="rbac_box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" value="&lt;b&gt;Authentification &amp; RBAC&lt;/b&gt;&lt;br/&gt;VIEWER  ·  ANALYST  ·  AUDITOR  ·  ADMIN&lt;br/&gt;MFA OTP email  ·  JWT access 30 min&lt;br/&gt;Rate limiting via Redis" vertex="1">
+                    <mxGeometry height="120" width="260" x="630" y="648" as="geometry"/>
+                </mxCell>
+                <mxCell id="backend" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" value="&lt;b&gt;petrix-backend&lt;/b&gt;&lt;br/&gt;FastAPI 0.109  ·  Python 3.11&lt;br/&gt;Port 8000  ·  Swagger /api/docs" vertex="1">
+                    <mxGeometry height="110" width="260" x="970" y="278" as="geometry"/>
+                </mxCell>
+                <mxCell id="celery" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" value="&lt;b&gt;petrix-celery&lt;/b&gt;&lt;br/&gt;Celery 5.3  ·  concurrency = 2&lt;br/&gt;Hardening  ·  scans  ·  email OTP" vertex="1">
+                    <mxGeometry height="110" width="260" x="970" y="460" as="geometry"/>
+                </mxCell>
+                <mxCell id="redis" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" value="&lt;b&gt;petrix-redis&lt;/b&gt;&lt;br/&gt;Redis 7-alpine&lt;br/&gt;Broker  ·  cache  ·  OTP  ·  blacklist JWT" vertex="1">
+                    <mxGeometry height="110" width="260" x="970" y="648" as="geometry"/>
+                </mxCell>
+                <mxCell id="cap_note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" value="CAP_NET_RAW + CAP_NET_ADMIN&lt;br/&gt;nmap  ·  Scapy  (scans réseau)" vertex="1">
+                    <mxGeometry height="65" width="260" x="970" y="830" as="geometry"/>
+                </mxCell>
+                <mxCell id="rds" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=13;" value="&lt;b&gt;Amazon RDS&lt;/b&gt;&lt;br/&gt;PostgreSQL 16&lt;br/&gt;AWS Managed  ·  eu-west-1&lt;br/&gt;Base de données principale" vertex="1">
+                    <mxGeometry height="120" width="260" x="1560" y="165" as="geometry"/>
+                </mxCell>
+                <mxCell id="s3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=13;" value="&lt;b&gt;Amazon S3&lt;/b&gt;&lt;br/&gt;petrix-storage-655177115922&lt;br/&gt;Stockage rapports d&#39;audit HCO" vertex="1">
+                    <mxGeometry height="110" width="260" x="1560" y="390" as="geometry"/>
+                </mxCell>
+                <mxCell id="ssm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=13;" value="&lt;b&gt;AWS SSM Parameter Store&lt;/b&gt;&lt;br/&gt;SecureString&lt;br/&gt;/petrix/mistral_api_key&lt;br/&gt;(jamais en clair dans le code)" vertex="1">
+                    <mxGeometry height="120" width="260" x="1560" y="570" as="geometry"/>
+                </mxCell>
+                <mxCell id="smtp" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=13;" value="&lt;b&gt;SMTP&lt;/b&gt;&lt;br/&gt;Envoi OTP  ·  Invitation utilisateur&lt;br/&gt;Celery → SMTP relay" vertex="1">
+                    <mxGeometry height="110" width="260" x="1560" y="760" as="geometry"/>
+                </mxCell>
+                <mxCell id="github" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a1a2e;strokeColor=#555;fontColor=#ffffff;fontSize=13;" value="&lt;b&gt;GitHub&lt;/b&gt;&lt;br/&gt;Noella00Ikirezi / hco-framework&lt;br/&gt;xKazuhiko — collaborateur&lt;br/&gt;Déploiement : git pull + docker build" vertex="1">
+                    <mxGeometry height="120" width="290" x="640" y="1360" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=15;fontStyle=3;fontColor=#555;" value="Services externes" vertex="1">
+                    <mxGeometry height="30" width="260" x="2080" y="115" as="geometry"/>
+                </mxCell>
+                <mxCell id="mistral" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede7f6;strokeColor=#7b1fa2;fontSize=13;" value="&lt;b&gt;🤖 Mistral AI&lt;/b&gt;&lt;br/&gt;API LLM externe&lt;br/&gt;Génération rapport d&#39;audit HCO&lt;br/&gt;Clé injectée via SSM uniquement" vertex="1">
+                    <mxGeometry height="130" width="270" x="2080" y="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="certfr" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#e65100;fontSize=13;" value="&lt;b&gt;🔐 CERT-FR&lt;/b&gt;&lt;br/&gt;Flux RSS / Atom CVE&lt;br/&gt;Alertes sécurité temps réel" vertex="1">
+                    <mxGeometry height="110" width="270" x="2080" y="370" as="geometry"/>
+                </mxCell>
+                <mxCell id="circl" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4e4;strokeColor=#c62828;fontSize=13;" value="&lt;b&gt;🔎 CIRCL CVE API&lt;/b&gt;&lt;br/&gt;Lookup CVE par service réseau&lt;br/&gt;nmap NSE → CIRCL → enrichissement" vertex="1">
+                    <mxGeometry height="110" width="270" x="2080" y="570" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" edge="1" parent="1" source="user" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=12;strokeColor=#6c8ebf;strokeWidth=2;" target="cf_bg" value="HTTPS">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" edge="1" parent="1" source="cf_bg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=12;strokeColor=#e8a800;strokeWidth=2;" target="nginx" value="Port 80">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e3" edge="1" parent="1" source="nginx" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;dashed=1;strokeColor=#6c8ebf;" target="frontend" value="SPA statique">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" edge="1" parent="1" source="nginx" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#d79b00;" target="backend" value="/api/  proxy">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" edge="1" parent="1" source="backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#d79b00;" target="celery" value="task.delay()">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" edge="1" parent="1" source="backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;dashed=1;strokeColor=#b85450;" target="redis" value="JWT  ·  rate limit">
+                    <mxGeometry relative="1" x="0.2462" y="20" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e7" edge="1" parent="1" source="celery" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#b85450;" target="redis" value="broker">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e8" edge="1" parent="1" source="backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#2e7d32;" target="rds" value="SQLAlchemy">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e9" edge="1" parent="1" source="backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;dashed=1;strokeColor=#2e7d32;" target="s3" value="upload rapports">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e10" edge="1" parent="1" source="backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;dashed=1;strokeColor=#2e7d32;" target="ssm" value="lecture clé Mistral">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e11" edge="1" parent="1" source="celery" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#2e7d32;" target="smtp" value="OTP  ·  invitation">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e12" edge="1" parent="1" source="backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#7b1fa2;strokeWidth=2;" target="mistral" value="génération rapport IA">
+                    <mxGeometry relative="1" x="0.2484" y="-65" as="geometry">
+                        <mxPoint as="offset"/>
+                        <Array as="points">
+                            <mxPoint x="1655" y="333"/>
+                            <mxPoint x="1655" y="270"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e13" edge="1" parent="1" source="backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#e65100;" target="certfr" value="flux CVE">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1655" y="333"/>
+                            <mxPoint x="1655" y="410"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e14" edge="1" parent="1" source="celery" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#c62828;" target="circl" value="lookup CVE">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1655" y="515"/>
+                            <mxPoint x="1655" y="590"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e15" edge="1" parent="1" source="github" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#444;strokeWidth=2;dashed=1;" target="ec2_box" value="déploiement manuel">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e16" edge="1" parent="1" source="ssm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=11;strokeColor=#7b1fa2;dashed=1;" target="mistral" value="clé transmise">
+                    <mxGeometry relative="1" x="0.0067" y="-30" as="geometry">
+                        <mxPoint x="-1" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
