@@ -58,7 +58,8 @@ warn() { _finding "$1" "$2" "$3" "FAIL" "$4" "$5" "$6" "$7"   "$8" ""; }
 sshd_val() {
   local d="$1" def="${2:-}"
   local v
-  v=$(sshd -T 2>/dev/null | grep -i "^${d,,} " | awk '{print $2}' | head -1)
+  local d_lower; d_lower=$(echo "$d" | tr '[:upper:]' '[:lower:]')
+  v=$(sshd -T 2>/dev/null | grep -i "^${d_lower} " | awk '{print $2}' | head -1)
   [ -z "$v" ] && v=$(grep -iE "^[[:space:]]*${d}[[:space:]]" /etc/ssh/sshd_config 2>/dev/null | tail -1 | awk '{print $2}')
   echo "${v:-$def}"
 }
@@ -87,7 +88,10 @@ audit_ssh() {
       local id="$1" dir="$2" exp="$3" sev="$4" desc="$5" rem="$6" def="${7:-}"
       local val; val=$(sshd_val "$dir" "$def")
       t=$((t+1))
-      if [ "${val,,}" = "${exp,,}" ]; then
+      local val_lower exp_lower
+      val_lower=$(echo "$val" | tr '[:upper:]' '[:lower:]')
+      exp_lower=$(echo "$exp" | tr '[:upper:]' '[:lower:]')
+      if [ "$val_lower" = "$exp_lower" ]; then
         ok "$id" "ssh" "$dir" "$val" "$desc"; p=$((p+1))
       else
         warn "$id" "ssh" "$sev" "$dir" "${val:-défaut OpenSSH}" "$exp" "$rem" "$desc"
