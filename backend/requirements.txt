@@ -33,3 +33,4 @@ loguru==0.7.2
 httpx==0.26.0
 cryptography==42.0.2
 
+defusedxml==0.7.1

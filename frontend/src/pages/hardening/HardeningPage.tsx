@@ -3,7 +3,7 @@
  * Trois onglets : Sessions (historique des audits importés), Référentiel (catalogue ANSSI-BP-028 / CIS),
  * Fiches modules (commandes d'audit et remédiations par domaine). Intègre le chat IA Mistral.
  */
-import { useRef, useState } from 'react';
+import { useRef, useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -31,7 +31,6 @@ import {
   LucideIcon,
   FileCode,
   ExternalLink,
-  Filter,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { hardeningApi, hardeningCorrelationsApi } from '@/api/client';
@@ -200,30 +199,6 @@ const MODULE_COLORS: Record<string, string> = {
   network:    'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300',
 };
 
-const OS_FILTER_LABELS: Record<string, { label: string; cls: string; activeCls: string }> = {
-  all:     { label: 'Tous', cls: 'text-gray-500 border-transparent', activeCls: 'border-primary-600 text-primary-700 dark:text-primary-400' },
-  linux:   { label: 'Linux', cls: 'text-orange-600 border-transparent', activeCls: 'border-orange-500 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/10' },
-  macos:   { label: 'macOS', cls: 'text-gray-600 border-transparent', activeCls: 'border-gray-500 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800' },
-  windows: { label: 'Windows', cls: 'text-blue-600 border-transparent', activeCls: 'border-blue-500 text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/10' },
-};
-
-const OS_BADGE_INLINE: Record<string, string> = {
-  linux:   'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-  macos:   'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-  windows: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-};
-
-const REF_NORM_LABELS: Record<string, string> = {
-  linux:   'ANSSI-BP-028',
-  macos:   'CIS macOS',
-  windows: 'CIS WS2019',
-};
-
-/**
- * Onglet Référentiel : tableau de bord des contrôles ANSSI-BP-028 / CIS avec filtres
- * par OS (Linux / macOS / Windows), module et sévérité.
- * Chaque ligne est expandable pour afficher le contexte et la norme associée.
- */
 const BENCHMARK_LINKS: { os: string; label: string; sub: string; url: string; cls: string }[] = [
   {
     os: 'linux',
@@ -262,157 +237,6 @@ const BENCHMARK_LINKS: { os: string; label: string; sub: string; url: string; cl
   },
 ];
 
-function ReferentielTab() {
-  const [osFilter, setOsFilter] = useState<'all' | 'linux' | 'macos' | 'windows'>('linux');
-  const [moduleFilter, setModuleFilter] = useState('');
-  const [severityFilter, setSeverityFilter] = useState('');
-  const [expanded, setExpanded] = useState<string | null>(null);
-
-  const osCounts = { linux: 0, macos: 0, windows: 0 };
-  AUDIT_CATALOG.forEach(c => c.os.forEach(o => { osCounts[o] = (osCounts[o] || 0) + 1; }));
-
-  const byOs = osFilter === 'all'
-    ? AUDIT_CATALOG
-    : AUDIT_CATALOG.filter(c => c.os.includes(osFilter));
-
-  const modules = [...new Set(byOs.map(c => c.module))];
-  const filtered = byOs.filter(c =>
-    (!moduleFilter || c.module === moduleFilter) &&
-    (!severityFilter || c.severity === severityFilter)
-  );
-
-  const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-  const sorted = [...filtered].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
-
-  const visibleLinks = osFilter === 'all'
-    ? BENCHMARK_LINKS
-    : BENCHMARK_LINKS.filter(l => l.os === osFilter);
-
-  return (
-    <div className="space-y-4">
-      {/* Benchmark links */}
-      <div className="rounded-lg border p-4 space-y-3" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          Normes de référence officielles
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {visibleLinks.map(l => (
-            <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer"
-              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:shadow-sm transition-all ${l.cls}`}>
-              <span className="font-semibold text-gray-800 dark:text-gray-200">{l.label}</span>
-              <span className="text-gray-500 dark:text-gray-400 hidden sm:inline">— {l.sub}</span>
-              <ExternalLink className="h-3 w-3 text-gray-400 shrink-0" />
-            </a>
-          ))}
-        </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {AUDIT_CATALOG.length} contrôles couvrant Linux ({osCounts.linux}), macOS ({osCounts.macos}) et Windows ({osCounts.windows}).
-          Score : CRITIQUE −15 pts · ÉLEVÉ −8 pts · MOYEN −3 pts · FAIBLE −1 pt.
-        </p>
-      </div>
-
-      {/* OS tabs */}
-      <div className="flex gap-1 border-b" style={{ borderColor: 'var(--line)' }}>
-        {(['all', 'linux', 'macos', 'windows'] as const).map(os => {
-          const o = OS_FILTER_LABELS[os];
-          const isActive = osFilter === os;
-          const count = os === 'all' ? AUDIT_CATALOG.length : osCounts[os];
-          return (
-            <button
-              key={os}
-              onClick={() => { setOsFilter(os); setModuleFilter(''); }}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 -mb-px transition-colors ${isActive ? o.activeCls : o.cls + ' hover:text-gray-700 dark:hover:text-gray-300'}`}
-            >
-              {o.label}
-              <span className="rounded-full bg-current/10 px-1.5 py-0.5 font-mono text-xs opacity-70">{count}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4" style={{ color: 'var(--faint)' }} />
-          <select className="input py-1.5 text-sm" value={moduleFilter} onChange={e => setModuleFilter(e.target.value)}>
-            <option value="">Tous les modules</option>
-            {modules.map(m => (
-              <option key={m} value={m}>{byOs.find(c => c.module === m)?.moduleLabel ?? m}</option>
-            ))}
-          </select>
-        </div>
-        <select className="input py-1.5 text-sm" value={severityFilter} onChange={e => setSeverityFilter(e.target.value)}>
-          <option value="">Toutes les sévérités</option>
-          <option value="CRITICAL">Critique</option>
-          <option value="HIGH">Élevé</option>
-          <option value="MEDIUM">Moyen</option>
-          <option value="LOW">Faible</option>
-        </select>
-        <span className="ml-auto self-center text-xs" style={{ color: 'var(--faint)' }}>{sorted.length} contrôle(s)</span>
-      </div>
-
-      {/* Checks list */}
-      <div className="space-y-2">
-        {sorted.map(check => (
-          <div key={check.id} className="rounded-lg border" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
-            <button
-              className="flex w-full items-start gap-3 p-4 text-left"
-              onClick={() => setExpanded(e => e === check.id ? null : check.id)}
-            >
-              <div className="flex flex-col items-center gap-1 shrink-0 mt-0.5">
-                <span className={`rounded px-1.5 py-0.5 text-xs font-bold ${SEVERITY_COLORS[check.severity]}`}>
-                  {check.severity === 'CRITICAL' ? 'CRITIQUE' : check.severity === 'HIGH' ? 'ÉLEVÉ' : check.severity === 'MEDIUM' ? 'MOYEN' : 'FAIBLE'}
-                </span>
-                <span className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-xs font-mono font-bold text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
-                  −{SEVERITY_POINTS[check.severity] ?? 0} pts
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${MODULE_COLORS[check.module] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
-                    {check.moduleLabel}
-                  </span>
-                  {check.os.map(o => (
-                    <span key={o} className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${OS_BADGE_INLINE[o]}`}>
-                      {o === 'linux' ? 'Linux' : o === 'macos' ? 'macOS' : 'Windows'}
-                    </span>
-                  ))}
-                  <span className="font-mono text-xs font-semibold text-primary-600 dark:text-primary-400">
-                    {check.anssi}
-                  </span>
-                  <span className="text-xs font-mono" style={{ color: 'var(--faint)' }}>{check.id}</span>
-                </div>
-                <p className="mt-1 text-sm font-medium" style={{ color: 'var(--text)' }}>{check.name}</p>
-              </div>
-              <span className="shrink-0" style={{ color: 'var(--faint)' }}>
-                {expanded === check.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </span>
-            </button>
-            {expanded === check.id && (
-              <div className="border-t px-4 pb-4 pt-3 space-y-3" style={{ borderColor: 'var(--line)' }}>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--faint)' }}>Contexte de risque</p>
-                  <p className="mt-1 text-sm" style={{ color: 'var(--dim)' }}>{check.context}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--faint)' }}>
-                    Exigence — {check.os.map(o => REF_NORM_LABELS[o]).join(' / ')}
-                  </p>
-                  <p className="mt-1 text-sm font-medium text-primary-700 dark:text-primary-300">{check.norm}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-        {sorted.length === 0 && (
-          <div className="py-12 text-center text-sm" style={{ color: 'var(--faint)' }}>
-            Aucun contrôle pour cette combinaison de filtres.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
@@ -717,6 +541,29 @@ const OS_NORM_LABEL: Record<string, { label: string; cls: string; normLabel: str
   windows: { label: 'Windows', normLabel: 'CIS WS2019', cls: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300' },
 };
 
+const OS_BADGE_CARD: Record<string, string> = {
+  linux:   'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  macos:   'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+  windows: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+};
+
+const OS_LABEL: Record<string, string> = { linux: 'Linux', macos: 'macOS', windows: 'Windows' };
+
+function normalizeOs(osType: string): 'linux' | 'macos' | 'windows' | null {
+  if (osType.includes('linux')) return 'linux';
+  if (osType.includes('mac')) return 'macos';
+  if (osType.includes('win')) return 'windows';
+  return null;
+}
+
+function getModuleNorm(module: string, osType: string): { anssi: string; norm: string; normLabel: string } | null {
+  const os = normalizeOs(osType);
+  if (!os) return null;
+  const entry = AUDIT_CATALOG.find(c => c.module === module && c.os.includes(os));
+  if (!entry) return null;
+  return { anssi: entry.anssi, norm: entry.norm, normLabel: OS_NORM_LABEL[os]?.normLabel ?? '' };
+}
+
 function FichesTab({ sessions }: { sessions: Session[] }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -891,10 +738,11 @@ function ImportXmlModal({ onClose, onImported }: { onClose: () => void; onImport
 
 // TargetModal et SessionModal supprimés — les systèmes sont gérés via /assets et les audits via agent local + import XML.
 
-function SessionCard({ session }: { session: Session }) {
+function SessionCard({ session, osType = 'unknown' }: { session: Session; osType?: string }) {
   const [expanded, setExpanded] = useState(false);
   const [showCorr, setShowCorr] = useState(false);
   const certRef = useRef<HTMLDivElement>(null);
+  const osNorm = OS_NORM_LABEL[normalizeOs(osType) ?? ''];
 
   const { data: findings } = useQuery<Finding[]>({
     queryKey: ['hardening-findings', session.id],
@@ -945,6 +793,7 @@ function SessionCard({ session }: { session: Session }) {
   function FindingRow({ f }: { f: Finding }) {
     const pts = f.point_deduction ?? SEVERITY_POINTS[f.severity] ?? 0;
     const isQW = f.severity === 'MEDIUM' && f.remediation && f.remediation.length < 200;
+    const normRef = getModuleNorm(f.module, osType);
     return (
       <div className="rounded-md border border-gray-100 p-3 dark:border-gray-700">
         <div className="flex items-start gap-2">
@@ -961,13 +810,20 @@ function SessionCard({ session }: { session: Session }) {
                   ⚡ Quick win
                 </span>
               )}
+              {normRef && (
+                <span className="rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-purple-700 dark:border-purple-700 dark:bg-purple-900/20 dark:text-purple-300"
+                  title={normRef.norm}>
+                  {normRef.normLabel} {normRef.anssi}
+                </span>
+              )}
               <span className="font-mono text-xs text-gray-500">{f.check_id}</span>
               <span className="text-xs font-medium dark:text-gray-300">{f.check_name}</span>
             </div>
             <p className="text-xs text-gray-600 dark:text-gray-400">{f.description}</p>
             <p className="text-xs text-gray-500">
-              Valeur trouvée : <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{f.found}</code>
-              {' → '}Attendu : <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{f.expected}</code>
+              <span className="font-semibold">Constaté :</span> <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{f.found}</code>
+              {' '}<span className="text-gray-400">→</span>{' '}
+              <span className="font-semibold">Attendu :</span> <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">{f.expected}</code>
             </p>
             {f.cve_ids && f.cve_ids.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
@@ -986,7 +842,7 @@ function SessionCard({ session }: { session: Session }) {
               </details>
             )}
           </div>
-          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-700">{f.module}</span>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${MODULE_COLORS[f.module] ?? 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}>{f.module}</span>
         </div>
       </div>
     );
@@ -1000,6 +856,16 @@ function SessionCard({ session }: { session: Session }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium dark:text-white">{session.target_name}</span>
             <StatusBadge status={session.status} />
+            {normalizeOs(osType) && (
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${OS_BADGE_CARD[normalizeOs(osType)!] ?? ''}`}>
+                {OS_LABEL[normalizeOs(osType)!] ?? osType}
+              </span>
+            )}
+            {osNorm && (
+              <span className={`rounded border px-1.5 py-0.5 text-[10px] font-mono font-semibold ${osNorm.cls}`}>
+                {osNorm.normLabel}
+              </span>
+            )}
             {session.grade && (
               <span className={`text-xl font-bold ${GRADE_COLORS[session.grade] ?? ''}`}>{session.grade}</span>
             )}
@@ -1242,7 +1108,8 @@ function SessionCard({ session }: { session: Session }) {
  * et cibles via React Query, et expose le bouton d'import de rapport XML.
  */
 export default function HardeningPage() {
-  const [tab, setTab] = useState<'fiches' | 'referentiel' | 'sessions'>('fiches');
+  const [tab, setTab] = useState<'fiches' | 'sessions'>('fiches');
+  const [sessionsOsFilter, setSessionsOsFilter] = useState<string>('all');
   const [showImportModal, setShowImportModal] = useState(false);
   const queryClient = useQueryClient();
 
@@ -1271,6 +1138,14 @@ export default function HardeningPage() {
     completedSessions.length > 0
       ? Math.round(completedSessions.reduce((acc, s) => acc + (s.score ?? 0), 0) / completedSessions.length)
       : null;
+
+  const targetOsMap = useMemo(
+    () => Object.fromEntries(targets.map(t => [t.id, t.os_type])),
+    [targets],
+  );
+  const filteredSessions = sessionsOsFilter === 'all'
+    ? sessions
+    : sessions.filter(s => (targetOsMap[s.target_id] ?? '').includes(sessionsOsFilter));
 
   return (
     <div className="space-y-6">
@@ -1317,9 +1192,8 @@ export default function HardeningPage() {
       {/* Tabs */}
       <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
         {([
-          { id: 'fiches',      label: 'Fiches modules' },
-          { id: 'referentiel', label: 'Référentiel ANSSI' },
-          { id: 'sessions',    label: `Historique (${completedSessions.length})` },
+          { id: 'fiches',   label: 'Base de connaissance' },
+          { id: 'sessions', label: `Rapports d'audit (${completedSessions.length})` },
         ] as const).map(t => (
           <button
             key={t.id}
@@ -1335,32 +1209,65 @@ export default function HardeningPage() {
         ))}
       </div>
 
-      {/* Fiches Tab */}
+      {/* Base de connaissance */}
       {tab === 'fiches' && <FichesTab sessions={sessions} />}
 
-      {/* Référentiel Tab */}
-      {tab === 'referentiel' && <ReferentielTab />}
-
-      {/* Sessions Tab */}
+      {/* Rapports d'audit */}
       {tab === 'sessions' && (
-        <div className="space-y-3">
+        <div className="space-y-4">
+          {/* Filtre par OS */}
+          <div className="flex flex-wrap gap-2">
+            {([
+              { key: 'all',     label: 'Tous les OS' },
+              { key: 'linux',   label: 'Linux',   cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+              { key: 'macos',   label: 'macOS',   cls: 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200' },
+              { key: 'windows', label: 'Windows', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+            ] as const).map(({ key, label, cls }: { key: string; label: string; cls?: string }) => {
+              const count = key === 'all'
+                ? sessions.length
+                : sessions.filter(s => (targetOsMap[s.target_id] ?? '').includes(key)).length;
+              return (
+                <button key={key} onClick={() => setSessionsOsFilter(key)}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                    sessionsOsFilter === key
+                      ? (cls ?? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300') + ' ring-2 ring-current ring-offset-1'
+                      : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {label}
+                  <span className="font-mono opacity-70">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+
           {loadingSessions ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-primary-500" />
             </div>
-          ) : sessions.length === 0 ? (
+          ) : filteredSessions.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-16 text-gray-400">
               <ShieldCheck className="h-12 w-12 opacity-30" />
               <p className="text-center">
-                Aucun audit pour le moment.<br />
-                <span className="text-sm">Téléchargez l'agent depuis la page <Link to="/assets" className="text-primary-600 hover:underline">Systèmes</Link> et importez le rapport XML.</span>
+                {sessions.length === 0 ? (
+                  <>Aucun audit pour le moment.<br />
+                  <span className="text-sm">Téléchargez l'agent depuis la page <Link to="/assets" className="text-primary-600 hover:underline">Systèmes</Link> et importez le rapport XML.</span></>
+                ) : (
+                  `Aucun rapport pour cet OS.`
+                )}
               </p>
-              <button onClick={() => setShowImportModal(true)} className="btn btn-primary btn-sm">
-                <FileCode className="mr-1.5 h-3.5 w-3.5" /> Importer un rapport
-              </button>
+              {sessions.length === 0 && (
+                <button onClick={() => setShowImportModal(true)} className="btn btn-primary btn-sm">
+                  <FileCode className="mr-1.5 h-3.5 w-3.5" /> Importer un rapport
+                </button>
+              )}
             </div>
           ) : (
-            sessions.map(s => <SessionCard key={s.id} session={s} />)
+            <div className="space-y-3">
+              {filteredSessions.map(s => (
+                <SessionCard key={s.id} session={s} osType={targetOsMap[s.target_id] ?? 'unknown'} />
+              ))}
+            </div>
           )}
         </div>
       )}
