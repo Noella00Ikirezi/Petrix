@@ -138,7 +138,7 @@ class User(Base):
     )
 
     # Relations
-    scans: Mapped[List["Scan"]] = relationship("Scan", back_populates="created_by")
+    scans: Mapped[List["Scan"]] = relationship("Scan", back_populates="created_by", foreign_keys="Scan.created_by_id")
 
     @property
     def full_name(self) -> str:
@@ -316,8 +316,8 @@ class Scan(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    created_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    created_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # Informations générales
@@ -360,7 +360,7 @@ class Scan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relations
-    created_by: Mapped["User"] = relationship("User", back_populates="scans")
+    created_by: Mapped[Optional["User"]] = relationship("User", back_populates="scans", foreign_keys=[created_by_id])
     vulnerabilities: Mapped[List["Vulnerability"]] = relationship(
         "Vulnerability", back_populates="scan"
     )

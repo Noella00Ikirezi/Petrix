@@ -5,6 +5,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
+import { apiClient } from '@/api/client';
 import {
   Users,
   Plus,
@@ -56,7 +57,6 @@ interface UserStats {
   users_by_role: Record<string, number>;
 }
 
-const API_URL = '';
 
 const roleColors: Record<string, string> = {
   admin: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300',
@@ -78,7 +78,7 @@ const roleIcons: Record<string, React.ReactNode> = {
  * des modales d'action (création, édition de rôle, réinitialisation MDP, suppression).
  */
 export default function UsersPage() {
-  const { token, user: currentUser } = useAuthStore();
+  const { user: currentUser } = useAuthStore();
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([
     { name: 'Viewer',  value: 'viewer',  description: 'Lecture seule',              permissions: [], user_count: 0 },
@@ -102,28 +102,21 @@ export default function UsersPage() {
   const isAdmin = currentUser?.role === 'admin';
   const isAuditor = currentUser?.role === 'auditor';
 
-  // Fetch data
-  useEffect(() => {
-    fetchData();
-  }, [token]);
+  useEffect(() => { fetchData(); }, []);
 
-  /** Charge en parallèle la liste des utilisateurs, les rôles disponibles et les statistiques. */
   const fetchData = async () => {
     try {
       setLoading(true);
-      const headers = { Authorization: `Bearer ${token}` };
-
       const [usersRes, rolesRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/api/v1/users`, { headers }),
-        fetch(`${API_URL}/api/v1/users/roles`, { headers }),
-        fetch(`${API_URL}/api/v1/users/stats`, { headers }),
+        apiClient.get('/users'),
+        apiClient.get('/users/roles'),
+        apiClient.get('/users/stats'),
       ]);
-
-      if (usersRes.ok) setUsers(await usersRes.json());
-      if (rolesRes.ok) setRoles(await rolesRes.json());
-      if (statsRes.ok) setStats(await statsRes.json());
-    } catch (error) {
-      toast.error('Failed to load users');
+      setUsers(usersRes.data);
+      setRoles(rolesRes.data);
+      setStats(statsRes.data);
+    } catch {
+      toast.error('Erreur lors du chargement des utilisateurs');
     } finally {
       setLoading(false);
     }
@@ -152,38 +145,22 @@ export default function UsersPage() {
    */
   const handleActivate = async (user: User) => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/users/${user.id}/activate`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        toast.success('User activated');
-        fetchData();
-      } else {
-        const data = await res.json();
-        toast.error(data.detail || 'Failed to activate user');
-      }
-    } catch {
-      toast.error('Failed to activate user');
+      await apiClient.patch(`/users/${user.id}/activate`);
+      toast.success('Utilisateur activé');
+      fetchData();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Erreur lors de l\'activation');
     }
     setOpenDropdown(null);
   };
 
   const handleDeactivate = async (user: User) => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/users/${user.id}/deactivate`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        toast.success('User deactivated');
-        fetchData();
-      } else {
-        const data = await res.json();
-        toast.error(data.detail || 'Failed to deactivate user');
-      }
-    } catch {
-      toast.error('Failed to deactivate user');
+      await apiClient.patch(`/users/${user.id}/deactivate`);
+      toast.success('Utilisateur désactivé');
+      fetchData();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Erreur lors de la désactivation');
     }
     setOpenDropdown(null);
   };
@@ -191,21 +168,13 @@ export default function UsersPage() {
   const handleDelete = async () => {
     if (!selectedUser) return;
     try {
-      const res = await fetch(`${API_URL}/api/v1/users/${selectedUser.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        toast.success('User deleted');
-        fetchData();
-        setShowDeleteModal(false);
-        setSelectedUser(null);
-      } else {
-        const data = await res.json();
-        toast.error(data.detail || 'Failed to delete user');
-      }
-    } catch {
-      toast.error('Failed to delete user');
+      await apiClient.delete(`/users/${selectedUser.id}`);
+      toast.success('Utilisateur supprimé');
+      fetchData();
+      setShowDeleteModal(false);
+      setSelectedUser(null);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Erreur lors de la suppression');
     }
   };
 
@@ -503,65 +472,35 @@ export default function UsersPage() {
       {/* Create User Modal */}
       {showCreateModal && (
         <CreateUserModal
-          token={token!}
           roles={roles}
           currentUserRole={currentUser?.role ?? 'viewer'}
           onClose={() => setShowCreateModal(false)}
-          onSuccess={() => {
-            setShowCreateModal(false);
-            fetchData();
-          }}
+          onSuccess={() => { setShowCreateModal(false); fetchData(); }}
         />
       )}
 
-      {/* Edit User Modal */}
       {showEditModal && selectedUser && (
         <EditUserModal
-          token={token!}
           user={selectedUser}
-          onClose={() => {
-            setShowEditModal(false);
-            setSelectedUser(null);
-          }}
-          onSuccess={() => {
-            setShowEditModal(false);
-            setSelectedUser(null);
-            fetchData();
-          }}
+          onClose={() => { setShowEditModal(false); setSelectedUser(null); }}
+          onSuccess={() => { setShowEditModal(false); setSelectedUser(null); fetchData(); }}
         />
       )}
 
-      {/* Change Role Modal */}
       {showRoleModal && selectedUser && (
         <ChangeRoleModal
-          token={token!}
           user={selectedUser}
           roles={roles}
-          onClose={() => {
-            setShowRoleModal(false);
-            setSelectedUser(null);
-          }}
-          onSuccess={() => {
-            setShowRoleModal(false);
-            setSelectedUser(null);
-            fetchData();
-          }}
+          onClose={() => { setShowRoleModal(false); setSelectedUser(null); }}
+          onSuccess={() => { setShowRoleModal(false); setSelectedUser(null); fetchData(); }}
         />
       )}
 
-      {/* Reset Password Modal */}
       {showResetPasswordModal && selectedUser && (
         <ResetPasswordModal
-          token={token!}
           user={selectedUser}
-          onClose={() => {
-            setShowResetPasswordModal(false);
-            setSelectedUser(null);
-          }}
-          onSuccess={() => {
-            setShowResetPasswordModal(false);
-            setSelectedUser(null);
-          }}
+          onClose={() => { setShowResetPasswordModal(false); setSelectedUser(null); }}
+          onSuccess={() => { setShowResetPasswordModal(false); setSelectedUser(null); }}
         />
       )}
 
@@ -605,13 +544,11 @@ function StatCard({
 
 // Create User Modal
 function CreateUserModal({
-  token,
   roles,
   currentUserRole,
   onClose,
   onSuccess,
 }: {
-  token: string;
   roles: Role[];
   currentUserRole: string;
   onClose: () => void;
@@ -633,29 +570,16 @@ function CreateUserModal({
     e.preventDefault();
     try {
       setLoading(true);
-      const res = await fetch(`/api/v1/users`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: formData.email,
-          first_name: formData.first_name || null,
-          last_name: formData.last_name || null,
-          role: formData.role,
-        }),
+      await apiClient.post('/users', {
+        email: formData.email,
+        first_name: formData.first_name || null,
+        last_name: formData.last_name || null,
+        role: formData.role,
       });
-
-      if (res.ok) {
-        toast.success('Invitation envoyée — un email avec le mot de passe temporaire a été envoyé');
-        onSuccess();
-      } else {
-        const data = await res.json();
-        toast.error(data.detail || 'Échec de la création');
-      }
-    } catch {
-      toast.error('Échec de la création');
+      toast.success('Invitation envoyée — un email avec le mot de passe temporaire a été envoyé');
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Échec de la création');
     } finally {
       setLoading(false);
     }
@@ -727,12 +651,10 @@ function CreateUserModal({
 
 // Edit User Modal
 function EditUserModal({
-  token,
   user,
   onClose,
   onSuccess,
 }: {
-  token: string;
   user: User;
   onClose: () => void;
   onSuccess: () => void;
@@ -747,27 +669,14 @@ function EditUserModal({
     e.preventDefault();
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/users/${user.id}`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          first_name: formData.first_name || null,
-          last_name: formData.last_name || null,
-        }),
+      await apiClient.patch(`/users/${user.id}`, {
+        first_name: formData.first_name || null,
+        last_name: formData.last_name || null,
       });
-
-      if (res.ok) {
-        toast.success('User updated');
-        onSuccess();
-      } else {
-        const data = await res.json();
-        toast.error(data.detail || 'Failed to update user');
-      }
-    } catch {
-      toast.error('Failed to update user');
+      toast.success('Utilisateur mis à jour');
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Erreur lors de la mise à jour');
     } finally {
       setLoading(false);
     }
@@ -815,13 +724,11 @@ function EditUserModal({
 
 // Change Role Modal
 function ChangeRoleModal({
-  token,
   user,
   roles,
   onClose,
   onSuccess,
 }: {
-  token: string;
   user: User;
   roles: Role[];
   onClose: () => void;
@@ -831,27 +738,14 @@ function ChangeRoleModal({
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    if (selectedRole === user.role) {
-      onClose();
-      return;
-    }
-
+    if (selectedRole === user.role) { onClose(); return; }
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/users/${user.id}/role?role=${selectedRole}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.ok) {
-        toast.success('Role updated');
-        onSuccess();
-      } else {
-        const data = await res.json();
-        toast.error(data.detail || 'Failed to update role');
-      }
-    } catch {
-      toast.error('Failed to update role');
+      await apiClient.patch(`/users/${user.id}/role?role=${selectedRole}`);
+      toast.success('Rôle mis à jour');
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Erreur lors du changement de rôle');
     } finally {
       setLoading(false);
     }
@@ -908,12 +802,10 @@ function ChangeRoleModal({
 
 // Reset Password Modal
 function ResetPasswordModal({
-  token,
   user,
   onClose,
   onSuccess,
 }: {
-  token: string;
   user: User;
   onClose: () => void;
   onSuccess: () => void;
@@ -924,35 +816,15 @@ function ResetPasswordModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password !== confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
-    if (password.length < 12) {
-      toast.error('Password must be at least 12 characters');
-      return;
-    }
-
+    if (password !== confirmPassword) { toast.error('Les mots de passe ne correspondent pas'); return; }
+    if (password.length < 12) { toast.error('Minimum 12 caractères'); return; }
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/users/${user.id}/reset-password`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ new_password: password }),
-      });
-
-      if (res.ok) {
-        toast.success('Password reset successfully');
-        onSuccess();
-      } else {
-        const data = await res.json();
-        toast.error(data.detail || 'Failed to reset password');
-      }
-    } catch {
-      toast.error('Failed to reset password');
+      await apiClient.post(`/users/${user.id}/reset-password`, { new_password: password });
+      toast.success('Mot de passe réinitialisé');
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Erreur lors de la réinitialisation');
     } finally {
       setLoading(false);
     }
