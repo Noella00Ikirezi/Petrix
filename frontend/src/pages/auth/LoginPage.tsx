@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 import { authApi } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
 
-type Phase = 'credentials' | 'otp';
+type Phase = 'credentials' | 'otp' | 'forgot-email' | 'forgot-otp' | 'forgot-new-password';
 
 /**
  * Page de connexion Petrix avec authentification multi-facteurs (email OTP).
@@ -22,6 +22,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [mfaToken, setMfaToken] = useState('');
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [resetOtpDigits, setResetOtpDigits] = useState(['', '', '', '', '', '']);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const resetOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const setAuth = useAuthStore((state) => state.setAuth);
@@ -29,6 +35,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (phase === 'otp') otpRefs.current[0]?.focus();
+    if (phase === 'forgot-otp') resetOtpRefs.current[0]?.focus();
   }, [phase]);
 
   /**
@@ -115,6 +122,70 @@ export default function LoginPage() {
     if (e.key === 'Backspace' && !otpDigits[index] && index > 0) otpRefs.current[index - 1]?.focus();
   };
 
+  const handleForgotEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const data = await authApi.forgotPassword(forgotEmail);
+      setResetToken(data.reset_token);
+      setPhase('forgot-otp');
+      toast.success('Si cet email existe, un code a été envoyé');
+    } catch {
+      toast.error('Erreur — réessayez');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyResetOtp = async (code: string) => {
+    // On garde juste le code pour la prochaine étape
+    setResetToken(resetToken); // déjà stocké
+    setPhase('forgot-new-password');
+    // Store the code temporarily in the resetToken state as a combined string
+    setResetToken(`${resetToken}__${code}`);
+  };
+
+  const handleResetOtpChange = (index: number, value: string) => {
+    if (value.length > 1) {
+      const digits = value.replace(/\D/g, '').slice(0, 6).split('');
+      const newOtp = [...resetOtpDigits];
+      digits.forEach((d, i) => { if (index + i < 6) newOtp[index + i] = d; });
+      setResetOtpDigits(newOtp);
+      resetOtpRefs.current[Math.min(index + digits.length, 5)]?.focus();
+      if (newOtp.every((d) => d !== '')) verifyResetOtp(newOtp.join(''));
+      return;
+    }
+    if (value && !/^\d$/.test(value)) return;
+    const newOtp = [...resetOtpDigits];
+    newOtp[index] = value;
+    setResetOtpDigits(newOtp);
+    if (value && index < 5) resetOtpRefs.current[index + 1]?.focus();
+    if (value && newOtp.every((d) => d !== '')) verifyResetOtp(newOtp.join(''));
+  };
+
+  const handleResetOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !resetOtpDigits[index] && index > 0) resetOtpRefs.current[index - 1]?.focus();
+  };
+
+  const handleNewPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) { toast.error('Les mots de passe ne correspondent pas'); return; }
+    if (newPassword.length < 8) { toast.error('Minimum 8 caractères'); return; }
+    const [token, code] = resetToken.split('__');
+    setIsLoading(true);
+    try {
+      await authApi.resetPassword(token, code, newPassword);
+      toast.success('Mot de passe réinitialisé — connectez-vous');
+      setPhase('credentials');
+      setResetToken(''); setResetOtpDigits(['', '', '', '', '', '']); setNewPassword(''); setConfirmPassword('');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      toast.error(err.response?.data?.detail || 'Erreur lors de la réinitialisation');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px', fontFamily: 'var(--font-mono)' }}>
       {/* Pixels décoratifs */}
@@ -173,11 +244,115 @@ export default function LoginPage() {
 
             {/* Footer du panel */}
             <div style={{ borderTop: '1px solid var(--line)', padding: '12px 24px', display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--faint)', letterSpacing: '.1em' }}>
-              <span>Pas de compte ?</span>
+              <button
+                type="button"
+                onClick={() => setPhase('forgot-email')}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--faint)', fontFamily: 'var(--font-mono)', letterSpacing: '.1em', textTransform: 'uppercase' }}>
+                Mot de passe oublié ?
+              </button>
               <Link to="/signup" style={{ color: 'var(--lime)', textTransform: 'uppercase', letterSpacing: '.15em', fontSize: 10 }}>
                 SIGNUP() →
               </Link>
             </div>
+          </div>
+        )}
+
+        {/* Phase forgot-email */}
+        {phase === 'forgot-email' && (
+          <div style={{ border: '1px solid var(--line)', background: 'var(--panel)' }}>
+            <div style={{ borderBottom: '1px solid var(--line)', padding: '14px 24px' }}>
+              <span style={{ fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--lime)' }}>// AUTH.RESET_PASSWORD()</span>
+            </div>
+            <form onSubmit={handleForgotEmail} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <p style={{ fontSize: 12, color: 'var(--dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                Entrez votre email. Si le compte existe, un code de réinitialisation sera envoyé.
+              </p>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 8 }}>
+                  .Email
+                </label>
+                <input
+                  type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)}
+                  className="input" placeholder="votre@email.com" required style={{ width: '100%' }}
+                />
+              </div>
+              <button type="submit" disabled={isLoading} className="btn" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 8, opacity: isLoading ? 0.6 : 1 }}>
+                {isLoading ? <><Loader2 size={14} className="animate-spin" /> Envoi...</> : 'ENVOYER_CODE()'}
+              </button>
+            </form>
+            <div style={{ borderTop: '1px solid var(--line)', padding: '12px 24px' }}>
+              <button onClick={() => setPhase('credentials')} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--faint)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-mono)', letterSpacing: '.1em', textTransform: 'uppercase' }}>
+                <ArrowLeft size={12} /> Retour
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Phase forgot-otp */}
+        {phase === 'forgot-otp' && (
+          <div style={{ border: '1px solid var(--line)', background: 'var(--panel)' }}>
+            <div style={{ borderBottom: '1px solid var(--line)', padding: '14px 24px' }}>
+              <span style={{ fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--lime)' }}>// MFA.VERIFY_RESET()</span>
+            </div>
+            <div style={{ padding: 24 }}>
+              <p style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 24, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                Code envoyé à <span style={{ color: 'var(--text)' }}>{forgotEmail}</span>
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 24 }}>
+                {resetOtpDigits.map((digit, index) => (
+                  <input
+                    key={index}
+                    ref={(el) => { resetOtpRefs.current[index] = el; }}
+                    type="text" inputMode="numeric" maxLength={6}
+                    value={digit}
+                    onChange={(e) => handleResetOtpChange(index, e.target.value)}
+                    onKeyDown={(e) => handleResetOtpKeyDown(index, e)}
+                    disabled={isLoading}
+                    style={{ width: 48, height: 56, textAlign: 'center', fontSize: 20, fontWeight: 700, background: 'var(--panel-hi)', border: `1px solid ${digit ? 'var(--lime)' : 'var(--line)'}`, color: 'var(--text)', fontFamily: 'var(--font-mono)', outline: 'none' }}
+                  />
+                ))}
+              </div>
+              {isLoading && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--faint)', fontSize: 12 }}><Loader2 size={14} className="animate-spin" /> Vérification...</div>}
+            </div>
+            <div style={{ borderTop: '1px solid var(--line)', padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button onClick={() => { setPhase('forgot-email'); setResetOtpDigits(['', '', '', '', '', '']); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--faint)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-mono)', letterSpacing: '.1em', textTransform: 'uppercase' }}>
+                <ArrowLeft size={12} /> Retour
+              </button>
+              <span style={{ fontSize: 10, color: 'var(--faint)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Expire dans 5min</span>
+            </div>
+          </div>
+        )}
+
+        {/* Phase forgot-new-password */}
+        {phase === 'forgot-new-password' && (
+          <div style={{ border: '1px solid var(--line)', background: 'var(--panel)' }}>
+            <div style={{ borderBottom: '1px solid var(--line)', padding: '14px 24px' }}>
+              <span style={{ fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--lime)' }}>// AUTH.SET_NEW_PASSWORD()</span>
+            </div>
+            <form onSubmit={handleNewPassword} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 8 }}>
+                  .Nouveau mot de passe
+                </label>
+                <input
+                  type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                  className="input" placeholder="••••••••" required minLength={8} style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, letterSpacing: '.25em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 8 }}>
+                  .Confirmer le mot de passe
+                </label>
+                <input
+                  type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="input" placeholder="••••••••" required minLength={8} style={{ width: '100%' }}
+                />
+              </div>
+              <button type="submit" disabled={isLoading} className="btn" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 8, opacity: isLoading ? 0.6 : 1 }}>
+                {isLoading ? <><Loader2 size={14} className="animate-spin" /> Réinitialisation...</> : 'RÉINITIALISER()'}
+              </button>
+            </form>
           </div>
         )}
 

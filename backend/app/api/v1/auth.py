@@ -471,3 +471,84 @@ async def get_me(
         role=current_user.role.value,
         is_active=current_user.is_active,
     )
+
+
+# ── Mot de passe oublié ───────────────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    reset_token: str
+    message: str = "Si cet email existe, un code a été envoyé"
+
+
+class ResetPasswordRequest(BaseModel):
+    reset_token: str
+    code: str
+    new_password: str
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(
+    data: ForgotPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Envoie un OTP de réinitialisation si l'email existe en base.
+
+    Retourne toujours la même réponse pour éviter l'énumération d'emails.
+    """
+    ip = _get_client_ip(request)
+    if not check_rate_limit(f"forgot:{ip}", 5, 300):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Trop de tentatives. Réessayez dans 5 minutes.")
+
+    user = db.query(User).filter(User.email == data.email).first()
+
+    # Générer un reset_token systématiquement pour éviter le timing attack
+    reset_token = create_token(
+        data={"sub": str(user.id) if user else "unknown", "purpose": "password_reset"},
+        token_type="mfa_pending",
+    )
+
+    if user and user.is_active:
+        otp_code = _generate_otp()
+        store_otp(f"reset:{str(user.id)}", otp_code, settings.mfa_token_expire_minutes * 60)
+        user_name = user.first_name or user.email.split("@")[0]
+        send_otp_email_task.delay(user.email, otp_code, user_name)
+
+    return ForgotPasswordResponse(reset_token=reset_token)
+
+
+@router.post("/reset-password")
+async def reset_password(
+    data: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """Valide le code OTP et réinitialise le mot de passe."""
+    payload = decode_token(data.reset_token, expected_type="mfa_pending")
+    if not payload or payload.get("purpose") != "password_reset":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token invalide ou expiré")
+
+    user_id = payload.get("sub")
+    if not user_id or user_id == "unknown":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token invalide")
+
+    if not verify_otp(f"reset:{user_id}", data.code):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Code invalide ou expiré")
+
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit faire au moins 8 caractères")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Utilisateur introuvable")
+
+    user.password_hash = get_password_hash(data.new_password)
+    user.must_change_password = False
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    db.commit()
+
+    return {"message": "Mot de passe réinitialisé avec succès"}

@@ -115,20 +115,13 @@ ROLE_PERMISSIONS: dict[UserRole, Set[Permission]] = {
         Permission.COMPLIANCE_VIEW,
         Permission.SUPPLIER_VIEW,
         Permission.REPORT_VIEW,
-        # Ajouts ANALYST : création/édition/exécution, sans opérations destructives
-        Permission.ASSET_CREATE,
-        Permission.ASSET_EDIT,
+        # Ajouts ANALYST : lecture + export de rapports, édition légère
+        # Note : SCAN_CREATE et SCAN_EXECUTE sont réservés AUDITOR+ (import XML inclus)
         Permission.ASSET_EXPORT,
-        Permission.VULN_CREATE,
-        Permission.VULN_EDIT,
-        Permission.VULN_RESOLVE,
         Permission.VULN_EXPORT,
-        Permission.SCAN_CREATE,
-        Permission.SCAN_EXECUTE,
         Permission.REPORT_CREATE,
         Permission.REPORT_EXPORT,
         Permission.PENTEST_VIEW,
-        Permission.PENTEST_EXECUTE,
         Permission.PENTEST_REPORT_EXPORT,
     },
     UserRole.AUDITOR: {
@@ -160,9 +153,12 @@ ROLE_PERMISSIONS: dict[UserRole, Set[Permission]] = {
         Permission.REPORT_VIEW,
         Permission.REPORT_CREATE,
         Permission.REPORT_EXPORT,
-        # Ajouts AUDITOR : lecture utilisateurs et journal d'audit, pentest complet
+        # Ajouts AUDITOR : lecture utilisateurs, journal d'audit, pentest complet
+        # + invitation d'utilisateurs (limité à ANALYST/AUDITOR côté backend)
         Permission.AUDIT_LOG_VIEW,
         Permission.USER_VIEW,
+        Permission.USER_CREATE,
+        Permission.USER_MANAGE_ROLES,
         Permission.PENTEST_VIEW,
         Permission.PENTEST_EXECUTE,
         Permission.PENTEST_CONFIGURE,

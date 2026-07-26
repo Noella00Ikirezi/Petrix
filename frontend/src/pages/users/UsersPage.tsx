@@ -100,6 +100,7 @@ export default function UsersPage() {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
   const isAdmin = currentUser?.role === 'admin';
+  const isAuditor = currentUser?.role === 'auditor';
 
   // Fetch data
   useEffect(() => {
@@ -228,13 +229,13 @@ export default function UsersPage() {
             Manage users, roles, and permissions
           </p>
         </div>
-        {isAdmin && (
+        {(isAdmin || isAuditor) && (
           <button
             onClick={() => setShowCreateModal(true)}
             className="btn btn-primary btn-md flex items-center gap-2"
           >
             <Plus className="h-4 w-4" />
-            Add User
+            Inviter un utilisateur
           </button>
         )}
       </div>
@@ -504,6 +505,7 @@ export default function UsersPage() {
         <CreateUserModal
           token={token!}
           roles={roles}
+          currentUserRole={currentUser?.role ?? 'viewer'}
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
             setShowCreateModal(false);
@@ -605,19 +607,25 @@ function StatCard({
 function CreateUserModal({
   token,
   roles,
+  currentUserRole,
   onClose,
   onSuccess,
 }: {
   token: string;
   roles: Role[];
+  currentUserRole: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const allowedRoles = currentUserRole === 'auditor'
+    ? roles.filter(r => r.value === 'analyst' || r.value === 'auditor')
+    : roles;
+
   const [formData, setFormData] = useState({
     email: '',
     first_name: '',
     last_name: '',
-    role: 'viewer',
+    role: currentUserRole === 'auditor' ? 'analyst' : 'viewer',
   });
   const [loading, setLoading] = useState(false);
 
@@ -697,7 +705,7 @@ function CreateUserModal({
             onChange={(e) => setFormData({ ...formData, role: e.target.value })}
             className="input mt-1"
           >
-            {roles.map((role) => (
+            {allowedRoles.map((role) => (
               <option key={role.value} value={role.value}>
                 {role.name} — {role.description}
               </option>

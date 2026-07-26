@@ -150,6 +150,18 @@ export const authApi = {
     const response = await apiClient.get('/auth/me');
     return response.data;
   },
+  forgotPassword: async (email: string) => {
+    const response = await apiClient.post('/auth/forgot-password', { email });
+    return response.data as { reset_token: string; message: string };
+  },
+  resetPassword: async (resetToken: string, code: string, newPassword: string) => {
+    const response = await apiClient.post('/auth/reset-password', {
+      reset_token: resetToken,
+      code,
+      new_password: newPassword,
+    });
+    return response.data;
+  },
 };
 
 /** CRUD complet sur les actifs (assets) de l'inventaire ; inclut un endpoint de statistiques globales. */

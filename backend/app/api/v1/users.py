@@ -436,6 +436,13 @@ async def create_user(
             detail="Only administrators can create admin users",
         )
 
+    # Les auditeurs ne peuvent inviter que des analystes ou auditeurs
+    if current_user.role == UserRole.AUDITOR and user_data.role not in (UserRole.ANALYST, UserRole.AUDITOR):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Auditors can only invite users with analyst or auditor roles",
+        )
+
     # Générer un mot de passe temporaire sécurisé
     alphabet = string.ascii_letters + string.digits + "!@#$%&*"
     temp_password = "".join(secrets.choice(alphabet) for _ in range(16))
@@ -543,6 +550,13 @@ async def update_user_role(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can assign admin role",
+        )
+
+    # Les auditeurs ne peuvent assigner que analyst ou auditor
+    if current_user.role == UserRole.AUDITOR and role not in (UserRole.ANALYST, UserRole.AUDITOR):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Auditors can only assign analyst or auditor roles",
         )
 
     # Protéger le dernier compte ADMIN contre toute rétrogradation

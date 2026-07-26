@@ -7,7 +7,7 @@ import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
-  Server, Plus, Search, FileText, Trash2,
+  Server, Search, FileText, Trash2,
   CheckCircle, XCircle, Clock, AlertTriangle, Minus,
   Monitor, Globe, Shield, FileCode, Download, Terminal,
 } from 'lucide-react';
@@ -119,84 +119,61 @@ function formatDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// ─── Add System Modal ─────────────────────────────────────────────────────────
+// ─── Download Only Modal ──────────────────────────────────────────────────────
 
 /**
- * Modale d'ajout d'un nouveau système à auditer.
- * Crée la cible via hardeningApi.createTarget et affiche les instructions de lancement de l'agent.
+ * Modale de téléchargement de l'agent d'audit.
+ * Demande uniquement le choix d'OS et déclenche le téléchargement du script.
+ * La création du système se fait automatiquement lors de l'import XML.
  * @param onClose - Callback de fermeture de la modale.
  */
-function AddSystemModal({ onClose }: { onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState({
-    name: '', os_type: 'linux', description: '',
-  });
+function DownloadOnlyModal({ onClose }: { onClose: () => void }) {
+  const [osType, setOsType] = useState('linux');
+  const osAgent = OS_AGENT[osType] ?? 'linux';
+  const isWindows = osAgent === 'windows';
 
-  const mutation = useMutation({
-    mutationFn: () => hardeningApi.createTarget({
-      name: form.name,
-      os_type: form.os_type,
-      description: form.description || undefined,
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['systems'] });
-      toast.success('Système ajouté — téléchargez et exécutez l\'agent pour lancer l\'audit');
-      onClose();
-    },
-    onError: () => toast.error("Erreur lors de l'ajout"),
-  });
-
-  const osAgentId = OS_AGENT[form.os_type] ?? 'linux';
-  const isWindows = osAgentId === 'windows';
+  const handleDownload = () => {
+    const url = `/api/v1/hardening/agent-script/${osAgent}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = isWindows ? 'petrix_agent_windows.ps1' : `petrix_agent_${osAgent}.sh`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
-        <h2 className="mb-5 text-lg font-bold text-gray-900 dark:text-white">Ajouter un système</h2>
-        <div className="space-y-3">
+        <h2 className="mb-5 text-lg font-bold text-gray-900 dark:text-white">Télécharger l'agent d'audit</h2>
+        <div className="space-y-4">
           <div>
-            <label className="label">Nom du système</label>
-            <input className="input" placeholder="SRV-PROD-01" value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">OS</label>
-            <select className="input" value={form.os_type}
-              onChange={e => setForm(f => ({ ...f, os_type: e.target.value }))}>
+            <label className="label">OS de la cible</label>
+            <select className="input" value={osType} onChange={e => setOsType(e.target.value)}>
               <option value="linux">Linux</option>
               <option value="macos_intel">macOS Intel</option>
               <option value="macos_silicon">macOS Apple Silicon</option>
               <option value="windows">Windows</option>
             </select>
           </div>
-          <div>
-            <label className="label">Description (optionnel)</label>
-            <input className="input" placeholder="Serveur web production…" value={form.description}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900">
+            <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-1">
+              <Terminal className="h-3 w-3" /> Exécuter sur la cible :
+            </p>
+            <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+              {isWindows
+                ? `# PowerShell (Administrateur)\n.\\petrix_agent_windows.ps1`
+                : `# Terminal (sudo requis)\nsudo bash petrix_agent_${osAgent}.sh`}
+            </pre>
+            <p className="text-xs text-gray-400 mt-2">
+              Le rapport XML généré peut ensuite être importé via "Importer un rapport" — le système sera ajouté automatiquement.
+            </p>
           </div>
-
-          {/* Agent instructions preview */}
-          {form.name && (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900">
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 flex items-center gap-1">
-                <Terminal className="h-3 w-3" /> Comment lancer l'audit :
-              </p>
-              <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
-                {isWindows
-                  ? `# Powershell (Admin)\n.\\petrix_agent_windows.ps1`
-                  : `# Terminal (sudo requis)\nsudo bash petrix_agent_${osAgentId}.sh`}
-              </pre>
-              <p className="text-xs text-gray-400 mt-2">Puis importez le fichier XML généré via "Importer un rapport"</p>
-            </div>
-          )}
         </div>
         <div className="mt-6 flex justify-end gap-3">
           <button onClick={onClose} className="btn btn-secondary btn-md">Annuler</button>
-          <button
-            onClick={() => mutation.mutate()}
-            disabled={!form.name || mutation.isPending}
-            className="btn btn-primary btn-md">
-            {mutation.isPending ? 'Ajout…' : 'Ajouter'}
+          <button onClick={handleDownload} className="btn btn-primary btn-md flex items-center gap-2">
+            <Download className="h-4 w-4" /> Télécharger l'agent
           </button>
         </div>
       </div>
@@ -515,7 +492,7 @@ export default function AssetsPage() {
             Importer un rapport
           </button>
           <button onClick={() => setShowAdd(true)} className="btn btn-primary btn-md">
-            <Plus className="mr-2 h-4 w-4" /> Ajouter un système
+            <Download className="mr-2 h-4 w-4" /> Télécharger l'agent
           </button>
         </div>
       </div>
@@ -561,7 +538,7 @@ export default function AssetsPage() {
             <p className="text-sm mt-1">Ajoutez un système puis téléchargez l'agent pour lancer l'audit</p>
           </div>
           <button onClick={() => setShowAdd(true)} className="btn btn-primary btn-sm">
-            <Plus className="mr-1.5 h-3.5 w-3.5" /> Ajouter un système
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Télécharger l'agent
           </button>
         </div>
       ) : (
@@ -581,7 +558,7 @@ export default function AssetsPage() {
         </div>
       )}
 
-      {showAdd && <AddSystemModal onClose={() => setShowAdd(false)} />}
+      {showAdd && <DownloadOnlyModal onClose={() => setShowAdd(false)} />}
       {agentTarget && <DownloadAgentModal target={agentTarget} onClose={() => setAgentTarget(null)} />}
     </div>
   );
