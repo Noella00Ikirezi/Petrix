@@ -55,8 +55,9 @@ warn() { _finding "$1" "$2" "$3" "FAIL" "$4" "$5" "$6" "$7" "$8" ""; }
 
 sshd_val() {
   local d="$1" def="${2:-}"
-  local v
-  v=$(sshd -T 2>/dev/null | grep -i "^${d,,} " | awk '{print $2}' | head -1)
+  local v d_lower
+  d_lower=$(echo "$d" | tr '[:upper:]' '[:lower:]')
+  v=$(sshd -T 2>/dev/null | grep -i "^${d_lower} " | awk '{print $2}' | head -1)
   [ -z "$v" ] && v=$(grep -iE "^[[:space:]]*${d}[[:space:]]" /etc/ssh/sshd_config 2>/dev/null | tail -1 | awk '{print $2}')
   echo "${v:-$def}"
 }
@@ -81,11 +82,25 @@ fowner() { stat -c '%U' "$1" 2>/dev/null || echo ""; }
 audit_ssh() {
   local t=0 p=0
 
+  # Guard: skip SSH config checks if SSH is not installed or not running
+  t=$((t+1))
+  if ! command -v sshd &>/dev/null; then
+    ok "SSH-000" "ssh" "SSH server" "Non installé (recommandé)" "Serveur SSH absent — surface d'attaque réduite"; p=$((p+1))
+    mod_score "ssh" "$t" "$p"; return
+  fi
+  if ! systemctl is-active --quiet sshd 2>/dev/null && ! systemctl is-active --quiet ssh 2>/dev/null; then
+    ok "SSH-000" "ssh" "SSH server" "Installé mais inactif" "Service SSH arrêté — OK si non nécessaire"; p=$((p+1))
+    mod_score "ssh" "$t" "$p"; return
+  fi
+
   ssh_chk() {
     local id="$1" dir="$2" exp="$3" sev="$4" desc="$5" rem="$6" def="${7:-}"
     local val; val=$(sshd_val "$dir" "$def")
     t=$((t+1))
-    if [ "${val,,}" = "${exp,,}" ]; then
+    local val_lower exp_lower
+    val_lower=$(echo "$val" | tr '[:upper:]' '[:lower:]')
+    exp_lower=$(echo "$exp" | tr '[:upper:]' '[:lower:]')
+    if [ "$val_lower" = "$exp_lower" ]; then
       ok "$id" "ssh" "$dir" "$val" "$desc"; p=$((p+1))
     else
       warn "$id" "ssh" "$sev" "$dir" "${val:-défaut OpenSSH}" "$exp" "$rem" "$desc"
@@ -224,7 +239,8 @@ audit_users() {
   fi
 
   t=$((t+1))
-  local epw; epw=$(awk -F: '($2=="" || $2=="!!" || $2=="!"){print $1}' /etc/shadow 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+  # $2=="" means truly empty password (dangerous). $2=="!" or "!!" means locked/disabled (safe).
+  local epw; epw=$(awk -F: '($2==""){print $1}' /etc/shadow 2>/dev/null | tr '\n' ',' | sed 's/,$//')
   if [ -z "$epw" ]; then
     ok "USR-002" "users" "Mots de passe vides" "Aucun" "Comptes sans mot de passe"; p=$((p+1))
   else
@@ -522,7 +538,8 @@ audit_mac() {
     fi
   elif command -v getenforce &>/dev/null; then
     local selval; selval=$(getenforce 2>/dev/null)
-    if [ "${selval,,}" = "enforcing" ]; then
+    local selval_lower; selval_lower=$(echo "$selval" | tr '[:upper:]' '[:lower:]')
+    if [ "$selval_lower" = "enforcing" ]; then
       ok "MAC-001" "mac" "SELinux" "enforcing" "Contrôle d'accès obligatoire actif"; p=$((p+1))
       ok "MAC-002" "mac" "SELinux mode" "enforcing" "SELinux en mode enforcing"; p=$((p+1))
     else
@@ -597,7 +614,19 @@ audit_firewall() {
   elif systemctl is-active --quiet ufw 2>/dev/null; then
     ok "FW-001" "firewall" "Pare-feu" "ufw (actif)" "Présence d'un pare-feu"; p=$((p+1))
     t=$((t+1))
-    ok "FW-002" "firewall" "UFW status" "$(ufw status 2>/dev/null | head -1)" "État UFW"; p=$((p+1))
+    local ufw_out; ufw_out=$(ufw status 2>/dev/null)
+    if echo "$ufw_out" | grep -qi "^Status: active"; then
+      local ufw_rules; ufw_rules=$(echo "$ufw_out" | grep -cE "ALLOW|DENY|REJECT|LIMIT" || echo "0")
+      if [ "${ufw_rules:-0}" -gt 0 ]; then
+        ok "FW-002" "firewall" "Règles UFW" "$ufw_rules règle(s) active(s)" "Filtrage UFW configuré"; p=$((p+1))
+      else
+        warn "FW-002" "firewall" "MEDIUM" "UFW actif sans règles" "0 règles configurées" "Au moins 1 règle de filtrage" \
+          "ufw allow ssh && ufw default deny incoming && ufw enable" "UFW actif mais aucune règle — tout le trafic est permis"
+      fi
+    else
+      warn "FW-002" "firewall" "HIGH" "UFW inactif (daemon présent)" "$(echo "$ufw_out" | head -1)" "Status: active" \
+        "ufw enable" "Daemon UFW chargé mais pare-feu non appliqué"
+    fi
   elif iptables -nL 2>/dev/null | grep -q "Chain"; then
     ok "FW-001" "firewall" "Pare-feu" "iptables (actif)" "Présence d'un pare-feu"; p=$((p+1))
   else
