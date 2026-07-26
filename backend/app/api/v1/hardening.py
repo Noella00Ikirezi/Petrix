@@ -10,8 +10,7 @@ import datetime
 import json
 import os
 import re
-import defusedxml.ElementTree as ET
-from xml.etree.ElementTree import Element as _XMLElement
+import xml.etree.ElementTree as ET
 from typing import Optional
 from urllib.request import Request as UrlRequest, urlopen
 from urllib.error import URLError
@@ -690,7 +689,7 @@ Reponds UNIQUEMENT avec ce JSON (sans aucun texte autour):
 # Import XML (rapport local Petrix Audit Agent)
 # =============================================================================
 
-def _txt(el: Optional[_XMLElement], tag: str, default: str = "") -> str:
+def _txt(el: Optional[ET.Element], tag: str, default: str = "") -> str:
     """Extrait le texte d'un sous-élément XML, en retournant ``default`` si absent ou vide."""
     child = el.find(tag) if el is not None else None
     return (child.text or default).strip() if child is not None else default
