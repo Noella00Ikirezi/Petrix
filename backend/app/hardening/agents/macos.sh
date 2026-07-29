@@ -1,15 +1,29 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Petrix Audit Agent — macOS (ANSSI-BP-028 adapté)
-# Génère un rapport XML de durcissement sans connexion SSH distante.
+# 8 modules — vérifications de durcissement macOS
+#
+# Référentiel : ANSSI-BP-028 v2.0 adapté macOS + recommandations CIS Apple macOS
+# Auteur  : Noëlla IKIREZI ET MISSAK MATHIEU — ESGI 4SI4 / Projet annuel Petrix
+# Version : 1.0.0
+#
+# Ce script s'exécute LOCALEMENT sur la machine cible (aucun accès SSH requis).
+# Il génère un rapport XML structuré importable dans la plateforme Petrix via
+# l'endpoint POST /api/v1/hardening/import-xml.
 #
 # Usage :
 #   sudo bash petrix_agent_macos.sh
 #   sudo bash petrix_agent_macos.sh http://PETRIX_URL   # upload automatique
 #   sudo OUTFILE=/tmp/mon_audit.xml bash petrix_agent_macos.sh
+#
+# Résultat : fichier XML dans le répertoire courant (ou $OUTFILE)
+#            Score /100 + Grade (A→F) affiché dans le terminal
 # ==============================================================================
+
+# set -u : toute variable non initialisée provoque une erreur immédiate.
 set -u
 
+# ── Variables globales ────────────────────────────────────────────────────────
 PETRIX_URL="${1:-}"
 HOSTNAME_VAL=$(hostname -f 2>/dev/null || hostname)
 OS_VER=$(sw_vers -productVersion 2>/dev/null || echo "macOS")
@@ -21,13 +35,29 @@ DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 _FNAME="petrix_audit_${HOSTNAME_VAL}_$(date +%Y%m%d_%H%M%S).xml"
 OUTFILE="${OUTFILE:-$(pwd)/${_FNAME}}"
 
+# Compteurs globaux — mis à jour par chaque appel à _finding()
 TOTAL=0; PASSED=0; CRIT=0; HIGH_C=0; MED=0; LOW=0
+
+# Buffers XML construits au fil des checks, serialisés dans generate_xml()
 FINDINGS_XML=""; MODULE_SCORES=""
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+# xml_esc : échappe les 4 caractères spéciaux XML (&, <, >, ") pour garantir
+#           un rapport XML valide même si une valeur système contient ces caractères.
 xml_esc() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
 
+# _finding : cœur du moteur de reporting — enregistre un résultat de check.
+#   $1  id       : identifiant unique du check (ex : SSH-001, FV-001…)
+#   $2  module   : nom du module (ssh | sip | filevault | firewall | …)
+#   $3  sev      : sévérité (CRITICAL | HIGH | MEDIUM | LOW | INFO)
+#   $4  st       : statut (PASS | FAIL)
+#   $5  name     : libellé lisible du check
+#   $6  found    : valeur observée sur le système
+#   $7  expected : valeur attendue selon le référentiel
+#   $8  rem      : commande de remédiation prête à copier-coller
+#   $9  ctx      : contexte additionnel — facultatif
+#   $10 extra    : attribut XML supplémentaire — facultatif
 _finding() {
   local id="$1" module="$2" sev="$3" st="$4" name="$5"
   local found="$6" expected="$7" rem="$8" ctx="${9:-}" extra="${10:-}"
@@ -52,9 +82,13 @@ _finding() {
   </Finding>"
 }
 
+# ok   : alias PASS — found == expected, aucune remédiation nécessaire.
+# warn : alias FAIL — écart constaté avec sévérité et commande de correction.
 ok()   { _finding "$1" "$2" "INFO" "PASS" "$3" "$4" "$4" ""    "$5" ""; }
 warn() { _finding "$1" "$2" "$3" "FAIL" "$4" "$5" "$6" "$7"   "$8" ""; }
 
+# sshd_val : lit une directive sshd via "sshd -T" (config compilée) puis
+#            directement dans /etc/ssh/sshd_config en fallback.
 sshd_val() {
   local d="$1" def="${2:-}"
   local v
@@ -64,13 +98,20 @@ sshd_val() {
   echo "${v:-$def}"
 }
 
+# mod_score : calcule le score du module (checks réussis / total × 100) et
+#             l'enregistre comme balise XML <Module name="..." score="nn" />.
 mod_score() {
   local name="$1" t="$2" p="$3"
   local sc=0; [ "$t" -gt 0 ] && sc=$(( p * 100 / t ))
   MODULE_SCORES="${MODULE_SCORES}      <Module name=\"$(xml_esc "$name")\" score=\"$sc\" />\n"
 }
 
-# ── SSH ───────────────────────────────────────────────────────────────────────
+# ── [1] SSH ── Configuration du service OpenSSH macOS ────────────────────────
+# macOS Active Directory Remote Login via launchctl. Si SSH est désactivé (cas
+# fréquent sur poste de travail), le module passe directement à PASS.
+# Si SSH est actif, les mêmes checks que Linux s'appliquent :
+#   PermitRootLogin, PasswordAuthentication, PermitEmptyPasswords, X11Forwarding.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_ssh() {
   local t=0 p=0
@@ -107,7 +148,16 @@ audit_ssh() {
   mod_score "ssh" "$t" "$p"
 }
 
-# ── SYSTEM INTEGRITY PROTECTION ───────────────────────────────────────────────
+# ── [2] SYSTEM INTEGRITY PROTECTION ── SIP et Gatekeeper ─────────────────────
+# SIP (System Integrity Protection) est la protection macOS contre la modification
+# des fichiers système, même par root. Introduit macOS 10.11 El Capitan.
+# Sans SIP, un attaquant avec accès root peut modifier les binaires système
+# (/usr/bin, /bin, /sbin…) sans être détecté.
+#
+# Gatekeeper : contrôle l'exécution des applications téléchargées — seules les
+# apps signées par Apple ou un développeur certifié sont autorisées par défaut.
+# Désactivé, n'importe quel exécutable malveillant peut tourner sans alerte.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_sip() {
   local t=0 p=0
@@ -136,7 +186,12 @@ audit_sip() {
   mod_score "sip" "$t" "$p"
 }
 
-# ── FILEVAULT ─────────────────────────────────────────────────────────────────
+# ── [3] FILEVAULT ── Chiffrement intégral du disque ──────────────────────────
+# FileVault chiffre l'intégralité du volume de démarrage (AES-XTS 128 bits).
+# Sans FileVault, un attaquant ayant un accès physique à la machine peut lire
+# toutes les données en bootant depuis un autre support ou en retirant le disque.
+# Essentiel pour les postes de travail et ordinateurs portables.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_filevault() {
   local t=0 p=0
@@ -153,7 +208,14 @@ audit_filevault() {
   mod_score "filevault" "$t" "$p"
 }
 
-# ── PARE-FEU macOS ────────────────────────────────────────────────────────────
+# ── [4] PARE-FEU macOS ── Filtrage des connexions entrantes ──────────────────
+# Le pare-feu applicatif macOS (com.apple.alf) filtre les connexions entrantes
+# par application, indépendamment des ports.
+#
+# Mode 1 (essential)  : autorise uniquement les services essentiels
+# Mode 2 (stealth)    : + mode furtif — ne répond pas aux requêtes ICMP non sollicitées
+#                       → la machine devient invisible aux scanners réseau basiques
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_firewall() {
   local t=0 p=0
@@ -183,7 +245,19 @@ audit_firewall() {
   mod_score "firewall" "$t" "$p"
 }
 
-# ── PARTAGE & SERVICES ────────────────────────────────────────────────────────
+# ── [5] PARTAGE & SERVICES ── Réduction de la surface d'attaque ──────────────
+# macOS embarque des services de partage désactivés par défaut mais facilement
+# activables depuis les Préférences Système. En contexte entreprise, ils sont
+# parfois activés "temporairement" puis oubliés.
+#
+# Services contrôlés :
+#   Partage d'écran     : accès VNC graphique à distance
+#   SMB (Partage de fichiers) : exposition de fichiers sur le réseau local
+#   mDNS/Bonjour        : autodécouverte réseau — publie la présence de la machine
+#   FTP                 : transfert en clair, sans chiffrement
+#   Remote Desktop (ARD): administration graphique à distance (Apple Remote Desktop)
+#   Partage de connexion: transforme le Mac en routeur — trafic non contrôlé
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_sharing() {
   local t=0 p=0
@@ -209,7 +283,15 @@ audit_sharing() {
   mod_score "sharing" "$t" "$p"
 }
 
-# ── PORTS RÉSEAU ─────────────────────────────────────────────────────────────
+# ── [6] PORTS RÉSEAU ── Inventaire des services exposés ──────────────────────
+# Liste tous les ports TCP en écoute (via netstat ou lsof) et qualifie chacun.
+# Utilise lsof en priorité sur macOS car netstat -p n'est pas disponible.
+#
+# DANGER_PORTS liste les ports historiquement exploités :
+#   - Bases de données exposées (3306 MySQL, 5432 PostgreSQL, 6379 Redis…)
+#   - Protocoles non chiffrés (21 FTP, 23 Telnet, 5900 VNC…)
+#   - Services Windows/SMB présents sur certains Mac en domaine AD
+# ─────────────────────────────────────────────────────────────────────────────
 
 DANGER_PORTS="21 23 69 110 135 137 138 139 143 389 445 512 513 514 1433 1521 3306 5432 5900 6379 27017"
 
@@ -299,7 +381,11 @@ audit_network() {
   mod_score "network" "$t" "$p"
 }
 
-# ── MISES À JOUR ──────────────────────────────────────────────────────────────
+# ── [7] MISES À JOUR ── État des correctifs système ──────────────────────────
+# Apple publie régulièrement des mises à jour de sécurité pour macOS.
+# Tout système non à jour est potentiellement exposé aux CVE connues,
+# notamment les vulnerabilités noyau (XNU) et WebKit exploitées in-the-wild.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_updates() {
   local t=0 p=0
@@ -317,7 +403,16 @@ audit_updates() {
   mod_score "updates" "$t" "$p"
 }
 
-# ── COMPTES UTILISATEURS ──────────────────────────────────────────────────────
+# ── [8] COMPTES UTILISATEURS ── Gestion des accès locaux ─────────────────────
+# Vérifie les paramètres de comptes macOS susceptibles d'ouvrir un accès non
+# authentifié ou de simplifier une compromission :
+#
+#   Administrateurs locaux : inventaire des comptes du groupe "admin"
+#   Compte Invité          : permet une connexion macOS sans mot de passe,
+#                            avec accès limité mais réel au système de fichiers
+#   Connexion automatique  : démarre une session sans demande d'authentification
+#                            — tout accès physique suffit à compromettre la machine
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_users() {
   local t=0 p=0
@@ -355,7 +450,10 @@ audit_users() {
   mod_score "users" "$t" "$p"
 }
 
-# ── SCORE GLOBAL ──────────────────────────────────────────────────────────────
+# ── SCORE GLOBAL ── Formule de déduction ────────────────────────────────────
+# CRITICAL×15 + HIGH×8 + MEDIUM×3 + LOW×1
+# Barème : A (≥90) · B (≥75) · C (≥60) · D (≥40) · F (<40)
+# ─────────────────────────────────────────────────────────────────────────────
 
 compute_score() {
   local ded=$(( CRIT*15 + HIGH_C*8 + MED*3 + LOW*1 ))
@@ -369,7 +467,9 @@ compute_score() {
   else GRADE="F"; fi
 }
 
-# ── GÉNÉRATION XML ────────────────────────────────────────────────────────────
+# ── GÉNÉRATION XML ── Rapport importable dans Petrix ─────────────────────────
+# Structure : <PetrixAuditReport> → <Metadata> + <Scores> + <Findings>
+# ─────────────────────────────────────────────────────────────────────────────
 
 generate_xml() {
   cat > "$OUTFILE" <<XMLEOF
@@ -401,7 +501,10 @@ $(printf '%b' "$MODULE_SCORES")
 XMLEOF
 }
 
-# ── UPLOAD ────────────────────────────────────────────────────────────────────
+# ── UPLOAD ── Envoi du rapport vers la plateforme Petrix ─────────────────────
+# Si $PETRIX_URL est fourni (argument $1), envoie le rapport XML via
+# multipart/form-data sur POST /api/v1/hardening/import-xml.
+# ─────────────────────────────────────────────────────────────────────────────
 
 upload_xml() {
   [ -z "$PETRIX_URL" ] && return

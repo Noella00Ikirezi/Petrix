@@ -1,12 +1,26 @@
 # ==============================================================================
 # Petrix Audit Agent  -  Windows (ANSSI-BP-028)
-# Genere un rapport XML de durcissement sans connexion SSH distante.
+# 7 modules - verifications de durcissement Windows
+#
+# Referentiel : ANSSI-BP-028 v2.0 adapte Windows + recommandations CIS Microsoft Windows
+# Auteur  : Noella IKIREZI - ESGI 4SI4 / Projet annuel Petrix
+# Version : 1.0.0
+#
+# Ce script s'execute LOCALEMENT sur la machine cible (aucun acces SSH requis).
+# Il genere un rapport XML structure importable dans la plateforme Petrix via
+# l'endpoint POST /api/v1/hardening/import-xml.
 #
 # Usage (PowerShell en tant qu'Administrateur) :
 #   .\petrix_agent_windows.ps1
 #   .\petrix_agent_windows.ps1 -PetrixUrl "http://PETRIX_URL"
 #   .\petrix_agent_windows.ps1 -OutFile "C:\temp\audit.xml"
+#
+# Resultat : fichier XML dans le meme dossier que le script (ou -OutFile)
+#            Score /100 + Grade (A->F) affiches dans le terminal
 # ==============================================================================
+
+# Requires -RunAsAdministrator : PowerShell refusera l'execution si le terminal
+# n'est pas ouvert en tant qu'administrateur - garantit l'acces aux APIs systeme.
 #Requires -RunAsAdministrator
 
 param(
@@ -14,9 +28,14 @@ param(
     [string]$OutFile   = ""
 )
 
+# Set-StrictMode : equivalent de "set -u" en bash - toute variable non
+# initialisee provoque une erreur. ErrorActionPreference = "Continue" permet
+# de continuer l'audit meme si un check individuel echoue.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 
+# -- Variables globales -------------------------------------------------------
+# Informations systeme collectees via WMI/CIM pour le rapport XML.
 $HostName     = [System.Net.Dns]::GetHostName()
 $OSInfo       = Get-CimInstance Win32_OperatingSystem
 $OSName       = $OSInfo.Caption
@@ -29,17 +48,33 @@ if (-not $OutFile) {
     $OutFile = Join-Path $PSScriptRoot $FName
 }
 
+# Compteurs globaux - mis a jour par chaque appel a Add-Finding
 $Script:Total  = 0; $Script:Passed = 0
 $Script:Crit   = 0; $Script:High   = 0; $Script:Med = 0; $Script:Low = 0
+
+# Buffers XML construits au fil des checks, serialises dans Generate-XML
 $Script:FindXML = [System.Text.StringBuilder]::new()
 $Script:ModScores = [System.Text.StringBuilder]::new()
 
 # -- Helpers ------------------------------------------------------------------
 
+# Esc-Xml : echappe les 4 caracteres speciaux XML (&, <, >, ") pour garantir
+#           un rapport XML valide meme si une valeur systeme contient ces caracteres.
 function Esc-Xml([string]$s) {
     $s -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;' -replace '"','&quot;'
 }
 
+# Add-Finding : coeur du moteur de reporting - enregistre un resultat de check.
+#   Id       : identifiant unique du check (ex : USR-001, FW-Domain, POL-003...)
+#   Module   : nom du module (users | firewall | services | network | ...)
+#   Severity : severite (CRITICAL | HIGH | MEDIUM | LOW | INFO)
+#   Status   : PASS ou FAIL
+#   Name     : libelle lisible du check
+#   Found    : valeur observee sur le systeme
+#   Expected : valeur attendue selon le referentiel
+#   Rem      : commande de remediation prete a copier-coller
+#   Ctx      : contexte additionnel - facultatif
+#   Dangerous: "true" si le port/service est dans la liste des dangereux
 function Add-Finding {
     param(
         [string]$Id, [string]$Module, [string]$Severity, [string]$Status,
@@ -66,22 +101,36 @@ function Add-Finding {
     $null = $Script:FindXML.AppendLine("  </Finding>")
 }
 
+# Pass : alias PASS - found == expected, aucune remediation necessaire.
 function Pass([string]$Id, [string]$Mod, [string]$Name, [string]$Found, [string]$Ctx = "") {
     Add-Finding -Id $Id -Module $Mod -Severity "INFO" -Status "PASS" `
         -Name $Name -Found $Found -Expected $Found -Rem "" -Ctx $Ctx
 }
+
+# Fail : alias FAIL - ecart constate avec severite et commande de correction.
 function Fail([string]$Id, [string]$Mod, [string]$Sev, [string]$Name,
               [string]$Found, [string]$Expected, [string]$Rem, [string]$Ctx = "") {
     Add-Finding -Id $Id -Module $Mod -Severity $Sev -Status "FAIL" `
         -Name $Name -Found $Found -Expected $Expected -Rem $Rem -Ctx $Ctx
 }
 
+# Add-ModScore : calcule le score du module (checks reussis / total x 100) et
+#               l'enregistre comme balise XML <Module name="..." score="nn" />.
 function Add-ModScore([string]$Name, [int]$T, [int]$P) {
     $sc = if ($T -gt 0) { [int]($P * 100 / $T) } else { 100 }
     $null = $Script:ModScores.AppendLine("      <Module name=`"$Name`" score=`"$sc`" />")
 }
 
-# -- COMPTES UTILISATEURS -----------------------------------------------------
+# -- [1] COMPTES UTILISATEURS ─────────────────────────────────────────────────
+# Verifie les comptes locaux a risque et la politique de mot de passe.
+#
+# Checks cles :
+#   Compte Administrateur integre : cible privilegiee des attaques par force brute
+#     car son nom est previsible - il doit etre desactive si non utilise
+#   Compte Invite : acces anonyme a Windows meme limite - toujours desactiver
+#   Longueur min mdp >= 12 : longueur recommandee par l'ANSSI-BP-028
+#     Un mdp de 8 caracteres est crackable en quelques heures sur GPU moderne
+# -----------------------------------------------------------------------------
 
 function Audit-Users {
     $t = 0; $p = 0
@@ -105,14 +154,14 @@ function Audit-Users {
             'Disable-LocalUser -Name "Guest"' "Acces anonyme possible"
     } else { Pass "USR-002" "users" "Compte Invite" "Desactive"; $p++ }
 
-    # Utilisateurs administrateurs locaux
+    # Utilisateurs administrateurs locaux - inventaire
     $t++
     $admins = (Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue |
               Where-Object { $_.ObjectClass -eq "User" } |
               ForEach-Object { $_.Name }) -join ", "
     Pass "USR-003" "users" "Administrateurs locaux" "${admins:-aucun}" "Inventaire des comptes admin locaux"; $p++
 
-    # Politique de mot de passe
+    # Politique de mot de passe - longueur minimum
     $t++
     try {
         $secpol = net accounts 2>&1 | Select-String "Minimum password length" | ForEach-Object { ($_ -split ":")[1].Trim() }
@@ -130,7 +179,15 @@ function Audit-Users {
     Add-ModScore "users" $t $p
 }
 
-# -- PARE-FEU WINDOWS ---------------------------------------------------------
+# -- [2] PARE-FEU WINDOWS ─────────────────────────────────────────────────────
+# Windows Firewall fonctionne avec 3 profils independants selon le type de reseau :
+#   Domain  : reseau d'entreprise authentifie (Active Directory)
+#   Private : reseau de confiance (domicile, bureau)
+#   Public  : reseau non fiable (hotspot, reseau inconnu)
+#
+# Chaque profil doit etre actif - un profil desactive laisse les connexions
+# entrantes non filtrees pour ce type de reseau.
+# -----------------------------------------------------------------------------
 
 function Audit-Firewall {
     $t = 0; $p = 0
@@ -152,7 +209,19 @@ function Audit-Firewall {
     Add-ModScore "firewall" $t $p
 }
 
-# -- SERVICES DANGEREUX -------------------------------------------------------
+# -- [3] SERVICES DANGEREUX ───────────────────────────────────────────────────
+# Verifie que les services reseau a risque sont desactives.
+# Un service en etat "Running" signifie qu'un port est ouvert et qu'un
+# processus attend des connexions - chaque service inutile est une surface
+# d'attaque supplémentaire.
+#
+# Services controles :
+#   Telnet      : protocole teletype non chiffre, remplace par SSH depuis 25 ans
+#   RemoteRegistry: expose la base de registre Windows en lecture/ecriture reseau
+#   TlntSvr     : serveur Telnet Windows legacy
+#   SNMP        : v1/v2 utilisent des community strings en clair dans le reseau
+#   Fax         : service inutile en production (vecteur d'exploitation historique)
+# -----------------------------------------------------------------------------
 
 function Audit-Services {
     $t = 0; $p = 0
@@ -176,7 +245,18 @@ function Audit-Services {
     Add-ModScore "services" $t $p
 }
 
-# -- PORTS RESEAU -------------------------------------------------------------
+# -- [4] PORTS RESEAU ─────────────────────────────────────────────────────────
+# Liste tous les ports TCP en ecoute (Get-NetTCPConnection) et qualifie chacun.
+# Identifie le processus associe a chaque port via Get-Process pour faciliter
+# le diagnostic et la remediation.
+#
+# DangerPorts liste les ports historiquement exploites :
+#   Bases de donnees exposees reseau (1433 MSSQL, 3306 MySQL, 6379 Redis...)
+#   Protocols non chiffres (21 FTP, 23 Telnet, 5900 VNC...)
+#   Services Windows/RPC (135 RPC Mapper, 139/445 NetBIOS/SMB)
+#   RDP (3389) : controle avec severite MEDIUM - acceptable si necessite mais
+#                doit etre restreint par IP, protege par NLA et surveille
+# -----------------------------------------------------------------------------
 
 $DangerPorts = @(21,23,69,110,135,137,138,139,143,389,445,512,513,514,1433,1521,3306,5432,5900,6379,27017)
 
@@ -228,6 +308,7 @@ function Audit-Network {
         if ($seenPorts.ContainsKey($port)) { continue }
         $seenPorts[$port] = $true
 
+        # Identifier le processus proprietaire du port pour faciliter la remediation
         $proc = "inconnu"
         try {
             $prc = Get-Process -Id $c.PID -ErrorAction SilentlyContinue
@@ -257,7 +338,15 @@ function Audit-Network {
     Add-ModScore "network" $t $p
 }
 
-# -- WINDOWS UPDATE ------------------------------------------------------------
+# -- [5] WINDOWS UPDATE ───────────────────────────────────────────────────────
+# Verifie si des mises a jour de securite Windows sont en attente via l'API
+# Microsoft.Update.Session (Windows Update Agent COM).
+#
+# Tout systeme Windows non patche est expose aux CVE connues et exploitees.
+# Les vulnerabilites critiques comme EternalBlue (SMB, WannaCry 2017) ou
+# PrintNightmare (spouleur, 2021) sont exploitables meme a distance et sans
+# authentification sur des systemes non mis a jour.
+# -----------------------------------------------------------------------------
 
 function Audit-Updates {
     $t = 0; $p = 0
@@ -281,11 +370,22 @@ function Audit-Updates {
     Add-ModScore "updates" $t $p
 }
 
-# -- ANTIVIRUS / DEFENDER ------------------------------------------------------
+# -- [6] ANTIVIRUS / DEFENDER ─────────────────────────────────────────────────
+# Windows Defender (Microsoft Defender Antivirus) est la protection antivirale
+# integree a Windows depuis Windows 8. Il s'appuie sur :
+#   - Des signatures de malwares mises a jour en continu
+#   - L'analyse comportementale en temps reel (heuristique)
+#   - L'integration avec Microsoft Security Center
+#
+# BitLocker : chiffrement integral de volume (AES-XTS 128 ou 256 bits).
+# Sans BitLocker, un attaquant avec acces physique peut lire toutes les donnees
+# en bootant sur un OS externe - aucun mot de passe Windows ne protege contre ca.
+# -----------------------------------------------------------------------------
 
 function Audit-Security {
     $t = 0; $p = 0
 
+    # Windows Defender - protection en temps reel
     $t++
     try {
         $mps = Get-MpComputerStatus -ErrorAction Stop
@@ -298,6 +398,7 @@ function Audit-Security {
         }
     } catch { Pass "SEC-001" "security" "Windows Defender" "Statut non lisible"; $p++ }
 
+    # Fraicheur des signatures - signatures > 3 jours = detection degradee
     $t++
     try {
         $mps = Get-MpComputerStatus -ErrorAction Stop
@@ -311,7 +412,7 @@ function Audit-Security {
         }
     } catch { Pass "SEC-002" "security" "Signatures Defender" "Non lisible"; $p++ }
 
-    # BitLocker
+    # BitLocker - chiffrement du disque systeme C:
     $t++
     try {
         $bl = Get-BitLockerVolume -MountPoint "C:" -ErrorAction Stop
@@ -328,7 +429,23 @@ function Audit-Security {
     Add-ModScore "security" $t $p
 }
 
-# -- REGISTRE / STRATEGIES ----------------------------------------------------
+# -- [7] REGISTRE / STRATEGIES ────────────────────────────────────────────────
+# Verifie les parametres de securite Windows configures dans la base de registre
+# et les journaux d'evenements.
+#
+# Checks cles :
+#   UAC (User Account Control) : mecanisme d'elevation de privileges - invite
+#     l'utilisateur a confirmer avant toute operation administrative.
+#     Sans UAC, tout programme lance par un administrateur obtient automatiquement
+#     les privileges maximum - un malware admin devient silencieusement "SYSTEM"
+#
+#   ExecutionPolicy PowerShell : controle quels scripts PowerShell peuvent s'executer.
+#     "Unrestricted" ou "Bypass" permettent a n'importe quel script de s'executer
+#     sans validation, incluant les payloads malveillants telecharges
+#
+#   Journal Securite Windows : trace les connexions, echecs d'auth, elevations de
+#     privileges. Sans lui, la detection d'intrusion post-incident est impossible.
+# -----------------------------------------------------------------------------
 
 function Audit-Policies {
     $t = 0; $p = 0
@@ -373,12 +490,10 @@ function Audit-Policies {
     Add-ModScore "policies" $t $p
 }
 
-# -- AUDIT LOGGING -------------------------------------------------------------
-
 function Audit-Logging {
     $t = 0; $p = 0
 
-    # Journal de securite
+    # Journal de securite Windows
     $t++
     try {
         $secLog = Get-WinEvent -ListLog "Security" -ErrorAction Stop
@@ -389,7 +504,7 @@ function Audit-Logging {
         }
     } catch { Pass "LOG-001" "logging" "Journal Securite" "Non lisible"; $p++ }
 
-    # Taille max du journal de securite
+    # Taille max du journal de securite - trop petit = rotation rapide = perte d'historique
     $t++
     try {
         $secLog = Get-WinEvent -ListLog "Security" -ErrorAction Stop
@@ -405,7 +520,11 @@ function Audit-Logging {
     Add-ModScore "logging" $t $p
 }
 
-# -- SCORE GLOBAL --------------------------------------------------------------
+# -- SCORE GLOBAL ── Formule de deduction -------------------------------------
+# CRITICAL x15 + HIGH x8 + MEDIUM x3 + LOW x1
+# Bareme : A (>=90) · B (>=75) · C (>=60) · D (>=40) · F (<40)
+# Le score est plafonne entre 0 et 100 (jamais negatif).
+# -----------------------------------------------------------------------------
 
 function Compute-Score {
     $ded  = $Script:Crit * 15 + $Script:High * 8 + $Script:Med * 3 + $Script:Low
@@ -422,7 +541,10 @@ function Compute-Score {
     return @{ Score = $sc; Grade = $grade }
 }
 
-# -- GENERATION XML ------------------------------------------------------------
+# -- GENERATION XML ── Rapport importable dans Petrix ─────────────────────────
+# Structure : <PetrixAuditReport> -> <Metadata> + <Scores> + <Findings>
+# Encode en UTF-8 pour la compatibilite avec l'API Petrix.
+# -----------------------------------------------------------------------------
 
 function Generate-XML([int]$Score, [string]$Grade) {
     $failed = $Script:Total - $Script:Passed
@@ -457,7 +579,10 @@ $($Script:FindXML.ToString())
     $xml | Out-File -FilePath $OutFile -Encoding UTF8
 }
 
-# -- UPLOAD --------------------------------------------------------------------
+# -- UPLOAD ── Envoi du rapport vers la plateforme Petrix ─────────────────────
+# Si -PetrixUrl est fourni, envoie le rapport XML via multipart/form-data
+# sur POST /api/v1/hardening/import-xml en utilisant HttpClient (.NET natif).
+# -----------------------------------------------------------------------------
 
 function Upload-XML {
     if (-not $PetrixUrl) { return }

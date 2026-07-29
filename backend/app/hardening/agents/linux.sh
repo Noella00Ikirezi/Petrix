@@ -1,15 +1,33 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Petrix Audit Agent — Linux (ANSSI-BP-028 v2.0)
-# 14 modules — ~110 checks
+# 14 modules — ~110 vérifications de durcissement
+#
+# Référentiel : ANSSI-BP-028 v2.0 "Recommandations de configuration d'un système GNU/Linux"
+#               https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/
+#
+# Auteur  : Noëlla IKIREZI ET MISSAK MATHIEU— ESGI 4SI4 / Projet annuel Petrix
+# Version : 2.0.0
+#
+# Ce script s'exécute LOCALEMENT sur la machine cible (aucun accès SSH requis).
+# Il génère un rapport XML structuré importable dans la plateforme Petrix via
+# l'endpoint POST /api/v1/hardening/import-xml.
 #
 # Usage :
 #   sudo bash petrix_agent_linux.sh
-#   sudo bash petrix_agent_linux.sh http://PETRIX_URL
+#   sudo bash petrix_agent_linux.sh http://PETRIX_URL   # upload automatique
 #   sudo OUTFILE=/tmp/mon_audit.xml bash petrix_agent_linux.sh
+#
+# Résultat : fichier XML dans le répertoire courant (ou $OUTFILE)
+#            Score /100 + Grade (A→F) affiché dans le terminal
 # ==============================================================================
+
+# set -u : toute variable non initialisée provoque une erreur immédiate.
+# Évite les faux positifs silencieux (ex : variable vide interprétée comme "OK").
 set -u
 
+# ── Variables globales ────────────────────────────────────────────────────────
+# Informations système collectées au démarrage pour le rapport XML.
 PETRIX_URL="${1:-}"
 HOSTNAME_VAL=$(hostname -f 2>/dev/null || hostname)
 OS_NAME=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || uname -s)
@@ -19,13 +37,30 @@ DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 _FNAME="petrix_audit_${HOSTNAME_VAL}_$(date +%Y%m%d_%H%M%S).xml"
 OUTFILE="${OUTFILE:-$(pwd)/${_FNAME}}"
 
+# Compteurs globaux — mis à jour par chaque appel à _finding()
+# CRIT/HIGH_C/MED/LOW comptent uniquement les échecs (FAIL)
 TOTAL=0; PASSED=0; CRIT=0; HIGH_C=0; MED=0; LOW=0
+
+# Buffers XML construits au fil des checks, serialisés dans generate_xml()
 FINDINGS_XML=""; MODULE_SCORES=""
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# xml_esc : échappe les 4 caractères spéciaux XML (&, <, >, ") pour garantir
+#           un rapport XML valide même si une valeur système contient ces caractères.
 xml_esc() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
 
+# _finding : cœur du moteur de reporting — enregistre un résultat de check.
+#   $1  id       : identifiant unique du check (ex : SSH-001, KRN-002…)
+#   $2  module   : nom du module (ssh | kernel | users | pam | …)
+#   $3  sev      : sévérité (CRITICAL | HIGH | MEDIUM | LOW | INFO)
+#   $4  st       : statut (PASS | FAIL)
+#   $5  name     : libellé lisible du check
+#   $6  found    : valeur observée sur le système
+#   $7  expected : valeur attendue selon le référentiel ANSSI
+#   $8  rem      : commande de remédiation prête à copier-coller
+#   $9  ctx      : contexte additionnel (processus, chemin…) — facultatif
+#   $10 extra    : attribut XML supplémentaire (ex : dangerous="true") — facultatif
 _finding() {
   local id="$1" module="$2" sev="$3" st="$4" name="$5"
   local found="$6" expected="$7" rem="$8" ctx="${9:-}" extra="${10:-}"
@@ -50,9 +85,14 @@ _finding() {
   </Finding>"
 }
 
+# ok   : alias PASS — found == expected, aucune remédiation nécessaire.
+# warn : alias FAIL — écart constaté avec sévérité et commande de correction.
 ok()   { _finding "$1" "$2" "INFO"  "PASS" "$3" "$4" "$4"  ""   "$5" ""; }
 warn() { _finding "$1" "$2" "$3" "FAIL" "$4" "$5" "$6" "$7" "$8" ""; }
 
+# sshd_val : lit une directive sshd en priorité via "sshd -T" (configuration
+#            compilée, inclut les valeurs par défaut et les Include) puis
+#            directement dans /etc/ssh/sshd_config en fallback.
 sshd_val() {
   local d="$1" def="${2:-}"
   local v d_lower
@@ -62,22 +102,35 @@ sshd_val() {
   echo "${v:-$def}"
 }
 
+# sysctl_val : lit un paramètre noyau en temps réel (valeur active, pas celle du fichier).
 sysctl_val() { sysctl -n "$1" 2>/dev/null || echo ""; }
 
+# mod_score : calcule le score du module (checks réussis / total × 100) et
+#             l'enregistre comme balise XML <Module name="..." score="nn" />.
 mod_score() {
   local name="$1" t="$2" p="$3"
   local sc=0; [ "$t" -gt 0 ] && sc=$(( p * 100 / t ))
   MODULE_SCORES="${MODULE_SCORES}      <Module name=\"$(xml_esc "$name")\" score=\"$sc\" />\n"
 }
 
+# logindef_val : lit une valeur de politique dans /etc/login.defs (expiration mdp, umask…).
 logindef_val() {
   grep -E "^${1}[[:space:]]" /etc/login.defs 2>/dev/null | awk '{print $2}' | tail -1
 }
 
+# fperm  : retourne les permissions en octal d'un fichier (ex : "640").
+# fowner : retourne le nom du propriétaire d'un fichier (ex : "root").
 fperm()  { stat -c '%a' "$1" 2>/dev/null || echo ""; }
 fowner() { stat -c '%U' "$1" 2>/dev/null || echo ""; }
 
-# ── [1] SSH ───────────────────────────────────────────────────────────────────
+# ── [1] SSH ── ANSSI-BP-028 : Configuration du service OpenSSH ───────────────
+# SSH est le vecteur d'accès à distance le plus exposé. Sa configuration par
+# défaut est trop permissive pour un environnement de production.
+#
+# Checks : PermitRootLogin, PasswordAuthentication, PermitEmptyPasswords,
+#          X11/Agent/TCP Forwarding, UsePAM, StrictModes, IgnoreRhosts,
+#          MaxAuthTries, LoginGraceTime, ClientAliveInterval, Banner, version.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_ssh() {
   local t=0 p=0
@@ -142,7 +195,7 @@ audit_ssh() {
       "Délai d'auth trop long — exposition aux attaques"
   fi
 
-  # ClientAliveInterval
+  # ClientAliveInterval : détecte et déconnecte les sessions inactives (zombies).
   t=$((t+1))
   local ci; ci=$(sshd_val "ClientAliveInterval" "0")
   if [ "${ci:-0}" -gt 0 ] && [ "${ci:-0}" -le 300 ] 2>/dev/null; then
@@ -164,7 +217,7 @@ audit_ssh() {
       "Déconnexion tardive des sessions mortes"
   fi
 
-  # Banner
+  # Banner : obligation légale d'avertissement avant connexion.
   t=$((t+1))
   local banner; banner=$(sshd_val "Banner" "none")
   if [ -n "$banner" ] && [ "$banner" != "none" ] && [ -f "$banner" ] 2>/dev/null; then
@@ -183,7 +236,18 @@ audit_ssh() {
   mod_score "ssh" "$t" "$p"
 }
 
-# ── [2] KERNEL ────────────────────────────────────────────────────────────────
+# ── [2] KERNEL ── ANSSI-BP-028 : Paramètres noyau et réseau (sysctl) ─────────
+# Les paramètres sysctl durcissent le comportement réseau et mémoire du noyau.
+# Ils sont activés en temps réel et persistés dans /etc/sysctl.d/99-*.conf.
+#
+# Checks clés :
+#   kernel.randomize_va_space=2  → ASLR — randomise l'espace mémoire des processus,
+#                                   protège contre les attaques ret2libc/heap spray
+#   net.ipv4.tcp_syncookies=1    → protection contre les attaques SYN flood (déni de service)
+#   net.ipv4.ip_forward=0        → empêche la machine d'agir comme routeur entre interfaces
+#   kernel.yama.ptrace_scope=1   → limite ptrace aux processus parents (anti-injection de code)
+#   kernel.dmesg_restrict=1      → masque les adresses noyau aux non-root (anti-info leak)
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_kernel() {
   local t=0 p=0
@@ -224,7 +288,20 @@ audit_kernel() {
   mod_score "kernel" "$t" "$p"
 }
 
-# ── [3] USERS ─────────────────────────────────────────────────────────────────
+# ── [3] USERS ── ANSSI-BP-028 : Gestion des comptes et politique de mots de passe
+# Vérifie la politique de comptes : doublons root, mots de passe vides,
+# sudo sans mot de passe, expiration des mots de passe.
+#
+# Checks clés :
+#   UID 0 non-root : tout compte avec UID 0 possède des droits root complets,
+#                    même sans s'appeler "root"
+#   NOPASSWD sudo  : permet l'élévation de privilèges sans authentification
+#   PASS_MAX_DAYS  : ANSSI recommande <= 90 jours — limite la fenêtre
+#                    d'exploitation d'un mot de passe compromis
+#   UMASK 027/077  : fichiers créés non lisibles par les autres utilisateurs par défaut
+#   PATH root      : un "." dans le PATH root permet l'exécution d'un binaire
+#                    malveillant déposé dans le répertoire courant
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_users() {
   local t=0 p=0
@@ -272,7 +349,7 @@ audit_users() {
       "Mots de passe sans expiration — ANSSI: 90 jours max"
   fi
 
-  # PASS_MIN_DAYS
+  # PASS_MIN_DAYS : empêche le changement immédiat de mot de passe (contournement historique).
   t=$((t+1))
   local pmin; pmin=$(logindef_val "PASS_MIN_DAYS")
   if [ -n "$pmin" ] && [ "$pmin" -ge 1 ] 2>/dev/null; then
@@ -339,7 +416,18 @@ audit_users() {
   mod_score "users" "$t" "$p"
 }
 
-# ── [4] PAM ───────────────────────────────────────────────────────────────────
+# ── [4] PAM ── ANSSI-BP-028 : Politique d'authentification et verrouillage ───
+# PAM (Pluggable Authentication Modules) centralise la politique d'authentification.
+# Il gère la complexité des mots de passe ET le verrouillage après échecs successifs.
+#
+# Checks clés :
+#   pam_pwquality/cracklib : impose longueur et complexité des mots de passe
+#   minlen >= 12           : longueur minimale recommandée par l'ANSSI-BP-028
+#   pam_faillock           : verrouille le compte après N tentatives échouées —
+#                            protection contre la force brute locale (console physique)
+#   unlock_time >= 900s    : 15 min minimum pour ralentir significativement les attaques
+#   remember >= 5          : empêche la réutilisation des 5 derniers mots de passe
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_pam() {
   local t=0 p=0
@@ -414,7 +502,20 @@ audit_pam() {
   mod_score "pam" "$t" "$p"
 }
 
-# ── [5] MONTAGE DES PARTITIONS ────────────────────────────────────────────────
+# ── [5] MONTAGE DES PARTITIONS ── ANSSI-BP-028 : Options de montage ──────────
+# Vérifie les options de montage des partitions sensibles pour limiter l'exécution
+# de code malveillant déposé dans des répertoires temporaires accessibles à tous.
+#
+# Options critiques :
+#   noexec : empêche l'exécution directe de binaires depuis la partition
+#            (contre les attaques par dépôt de payload dans /tmp)
+#   nosuid : désactive les bits setuid — un binaire setuid dans /tmp ne peut plus
+#            être utilisé pour une élévation de privilèges locale
+#   nodev  : empêche la création ou l'utilisation de fichiers device spéciaux
+#
+# /dev/shm est particulièrement sensible : c'est de la RAM partagée, utilisée
+# par certains malwares pour exécuter du code directement en mémoire.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_mounts() {
   local t=0 p=0
@@ -449,7 +550,18 @@ audit_mounts() {
   mod_score "mounts" "$t" "$p"
 }
 
-# ── [6] PERMISSIONS FICHIERS SENSIBLES ───────────────────────────────────────
+# ── [6] PERMISSIONS FICHIERS SENSIBLES ── ANSSI-BP-028 : Contrôle d'accès ────
+# Vérifie les permissions et propriétaires des fichiers système critiques.
+# Une permission trop ouverte sur ces fichiers est une faille d'escalade de privilèges.
+#
+# Fichiers contrôlés et seuils attendus :
+#   /etc/shadow  : hashages des mots de passe — max 640, propriétaire root
+#   /etc/passwd  : base de comptes — 644 root (lecture OK, écriture root uniquement)
+#   /etc/sudoers : règles d'élévation — 440 root (lecture seule pour root uniquement)
+#   /etc/ssh/sshd_config : configuration SSH — 600 root (privé)
+#   Clés SSH host privées : 600, propriétaire root obligatoire
+#   .rhosts / .netrc : mécanismes d'auth obsolètes et dangereux — ne doivent pas exister
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_perms() {
   local t=0 p=0
@@ -520,7 +632,17 @@ audit_perms() {
   mod_score "perms" "$t" "$p"
 }
 
-# ── [7] MAC (AppArmor / SELinux) ──────────────────────────────────────────────
+# ── [7] MAC (AppArmor / SELinux) ── ANSSI-BP-028 : Contrôle d'accès mandatoire
+# Le MAC confine les processus selon des profils définis indépendamment des
+# permissions UNIX classiques (DAC). Sans MAC, un processus compromis peut
+# accéder à tout fichier lisible par son utilisateur système.
+#
+# AppArmor (Ubuntu/Debian) : profils par chemin de fichier
+# SELinux (RHEL/CentOS)    : politiques de type enforcement
+#
+# En mode "enforce", toute action non autorisée est bloquée ET loggée,
+# permettant la détection d'une tentative de sortie de sandbox.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_mac() {
   local t=2 p=0
@@ -560,7 +682,11 @@ audit_mac() {
   mod_score "mac" "$t" "$p"
 }
 
-# ── [8] NTP ───────────────────────────────────────────────────────────────────
+# ── [8] NTP ── ANSSI-BP-028 : Synchronisation de l'horloge ───────────────────
+# La synchronisation est critique pour la cohérence des logs d'audit.
+# Des timestamps incorrects rendent impossible la corrélation d'événements lors
+# d'un incident (forensics) et peuvent invalider des certificats TLS.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_ntp() {
   local t=0 p=0
@@ -601,7 +727,14 @@ audit_ntp() {
   mod_score "ntp" "$t" "$p"
 }
 
-# ── [9] FIREWALL ──────────────────────────────────────────────────────────────
+# ── [9] FIREWALL ── ANSSI-BP-028 : Filtrage réseau local ─────────────────────
+# Vérifie la présence et l'activation d'un pare-feu local.
+# Supporte : firewalld (RHEL/Fedora), ufw (Ubuntu/Debian), iptables (générique).
+#
+# Un pare-feu local reste indispensable même derrière un pare-feu périmétrique :
+# il protège contre les mouvements latéraux si une autre machine du même segment
+# réseau est compromise.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_firewall() {
   local t=0 p=0
@@ -636,7 +769,14 @@ audit_firewall() {
   mod_score "firewall" "$t" "$p"
 }
 
-# ── [10] SERVICES DANGEREUX ───────────────────────────────────────────────────
+# ── [10] SERVICES DANGEREUX ── ANSSI-BP-028 : Réduction de la surface d'attaque
+# Chaque service actif = un port ouvert = une surface d'attaque supplémentaire.
+# En production, seuls les services strictement nécessaires doivent tourner.
+#
+# Services contrôlés : Telnet (non chiffré), rsh/rlogin/rexec (auth faible),
+# TFTP (sans authentification), FTP (données en clair), finger (fuite d'infos),
+# Avahi/mDNS, CUPS (impression), Bluetooth, NFS, NIS (annuaire obsolète).
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_services() {
   local t=0 p=0
@@ -665,7 +805,16 @@ audit_services() {
   mod_score "services" "$t" "$p"
 }
 
-# ── [11] PORTS RÉSEAU ─────────────────────────────────────────────────────────
+# ── [11] PORTS RÉSEAU ── ANSSI-BP-028 : Inventaire des services exposés ───────
+# Liste tous les ports TCP en écoute (via ss ou netstat) et qualifie chacun :
+#   INFO/LOW  → PASS (port standard ou risque faible)
+#   MEDIUM+   → FAIL avec remédiation prête à l'emploi
+#
+# DANGER_PORTS liste les ports historiquement exploités :
+#   - Bases de données exposées réseau (3306 MySQL, 5432 PostgreSQL, 6379 Redis…)
+#   - Protocoles non chiffrés (21 FTP, 23 Telnet, 69 TFTP…)
+#   - Partage de fichiers Windows (139 NetBIOS, 445 SMB)
+# ─────────────────────────────────────────────────────────────────────────────
 
 DANGER_PORTS="21 23 69 110 135 137 138 139 143 389 445 512 513 514 1433 1521 3306 5432 5900 6379 27017"
 
@@ -740,7 +889,20 @@ audit_network() {
   mod_score "network" "$t" "$p"
 }
 
-# ── [12] SYSTÈME DE FICHIERS ──────────────────────────────────────────────────
+# ── [12] SYSTÈME DE FICHIERS ── ANSSI-BP-028 : Intégrité du système de fichiers
+# Vérifie les vecteurs d'élévation de privilèges au niveau du système de fichiers.
+#
+# Checks clés :
+#   Binaires setuid/setgid : un binaire setuid root s'exécute toujours avec les
+#     droits root, quel que soit l'utilisateur qui le lance. Chaque binaire
+#     superflu est un vecteur d'élévation (ex : CVE-2021-4034 polkit/pkexec)
+#   /tmp sticky bit : sans ce bit, un utilisateur peut supprimer les fichiers
+#     temporaires d'un autre utilisateur dans /tmp
+#   Répertoires world-writable : tout utilisateur peut y écrire — vecteur de
+#     plantation de scripts malveillants
+#   Fichiers orphelins : appartiennent à un UID/GID sans compte associé —
+#     peuvent être "récupérés" par un nouveau compte créé avec le même UID
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_filesystem() {
   local t=0 p=0
@@ -788,7 +950,12 @@ audit_filesystem() {
   mod_score "filesystem" "$t" "$p"
 }
 
-# ── [13] PAQUETS ──────────────────────────────────────────────────────────────
+# ── [13] PAQUETS ── ANSSI-BP-028 : Gestion des mises à jour et paquets inutiles
+# Tout paquet non patché avec une CVE publique est exploitable si exposé.
+# Les paquets de services réseau obsolètes (telnet, rsh, nis…) implémentent des
+# protocoles sans chiffrement ni authentification forte — remplacés depuis les
+# années 90 par SSH, mais encore présents sur certains systèmes.
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_packages() {
   local t=0 p=0
@@ -826,7 +993,19 @@ audit_packages() {
   mod_score "packages" "$t" "$p"
 }
 
-# ── [14] JOURNALISATION ───────────────────────────────────────────────────────
+# ── [14] JOURNALISATION ── ANSSI-BP-028 : Traçabilité et détection ────────────
+# Sans journalisation, il est impossible de détecter une intrusion en temps réel,
+# de comprendre ce qui s'est passé après un incident, ou de prouver la conformité.
+#
+# Checks clés :
+#   rsyslog    : collecte et centralise les logs système (SSH, sudo, auth…)
+#   auditd     : framework d'audit Linux — trace les appels système (open, execve,
+#                chmod…) avec l'UID de l'auteur, le processus et le timestamp exact
+#   Journald Storage=persistent : sans cette option, les logs sont volatils
+#                et détruits à chaque redémarrage
+#   Règles auditd /etc/passwd + /etc/shadow : toute modification de la base
+#                de comptes est enregistrée — essentiel pour la détection d'escalade
+# ─────────────────────────────────────────────────────────────────────────────
 
 audit_logging() {
   local t=0 p=0
@@ -872,6 +1051,11 @@ audit_logging() {
 }
 
 # ── SCORE ─────────────────────────────────────────────────────────────────────
+# Formule de déduction : CRITICAL×15 + HIGH×8 + MEDIUM×3 + LOW×1
+# Un seul finding CRITICAL suffit à descendre sous 85/100.
+# Barème : A (≥90) · B (≥75) · C (≥60) · D (≥40) · F (<40)
+# Le score est plafonné entre 0 et 100 (jamais négatif).
+# ─────────────────────────────────────────────────────────────────────────────
 
 compute_score() {
   local ded=$(( CRIT*15 + HIGH_C*8 + MED*3 + LOW*1 ))
@@ -886,6 +1070,9 @@ compute_score() {
 }
 
 # ── XML ───────────────────────────────────────────────────────────────────────
+# Génère le rapport XML final importable dans Petrix via /api/v1/hardening/import-xml.
+# Structure : <PetrixAuditReport> → <Metadata> + <Scores> + <Findings>
+# ─────────────────────────────────────────────────────────────────────────────
 
 generate_xml() {
   cat > "$OUTFILE" <<XMLEOF
@@ -918,6 +1105,9 @@ XMLEOF
 }
 
 # ── UPLOAD ────────────────────────────────────────────────────────────────────
+# Si $PETRIX_URL est fourni (argument $1), envoie le rapport XML à la plateforme
+# via multipart/form-data sur POST /api/v1/hardening/import-xml.
+# ─────────────────────────────────────────────────────────────────────────────
 
 upload_xml() {
   [ -z "$PETRIX_URL" ] && return
@@ -960,6 +1150,7 @@ main() {
 
   compute_score
   generate_xml
+  # Redonner la propriété du rapport à l'utilisateur réel (pas root via sudo).
   _REAL_USER="${SUDO_USER:-$(stat -c '%U' "$(pwd)" 2>/dev/null)}"
   [ -n "$_REAL_USER" ] && [ "$_REAL_USER" != "root" ] && chown "$_REAL_USER" "$OUTFILE" 2>/dev/null || true
 
