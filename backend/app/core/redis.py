@@ -12,18 +12,23 @@ _redis = redis.from_url(settings.redis_url, decode_responses=True)
 
 # Préfixes de clés — permettent une inspection/suppression ciblée en production
 OTP_PREFIX = "otp:"
+OTP_ATTEMPTS_PREFIX = "otp_attempts:"
 TOKEN_BLACKLIST_PREFIX = "bl:"
 REFRESH_TOKEN_PREFIX = "rt:"
 RATE_LIMIT_PREFIX = "rl:"
+
+MAX_OTP_ATTEMPTS = 5
 
 
 def store_otp(user_id: str, code: str, ttl_seconds: int = 300) -> None:
     """Stocke un OTP en Redis avec expiration automatique.
 
     Le TTL par défaut de 300 s correspond à la fenêtre de validité configurée
-    dans ``settings.mfa_token_expire_minutes``.
+    dans ``settings.mfa_token_expire_minutes``. Réinitialise aussi le compteur
+    de tentatives d'une éventuelle demande d'OTP précédente pour ce même sujet.
     """
     _redis.setex(f"{OTP_PREFIX}{user_id}", ttl_seconds, code)
+    _redis.delete(f"{OTP_ATTEMPTS_PREFIX}{user_id}")
 
 
 def verify_otp(user_id: str, code: str) -> bool:
@@ -31,11 +36,27 @@ def verify_otp(user_id: str, code: str) -> bool:
 
     La suppression atomique après validation garantit le caractère à usage unique
     de l'OTP : une seconde soumission identique sera rejetée même dans la fenêtre TTL.
+
+    Limite les tentatives à ``MAX_OTP_ATTEMPTS`` sur la durée de vie de l'OTP :
+    au-delà, l'OTP est invalidé immédiatement (même s'il est encore dans sa
+    fenêtre de validité), forçant l'utilisateur à en redemander un. Cela réduit
+    l'espace de recherche exploitable par force brute de 10^6 à 5 tentatives.
     """
     key = f"{OTP_PREFIX}{user_id}"
+    attempts_key = f"{OTP_ATTEMPTS_PREFIX}{user_id}"
+
+    attempts = _redis.incr(attempts_key)
+    if attempts == 1:
+        ttl = _redis.ttl(key)
+        _redis.expire(attempts_key, ttl if ttl > 0 else 300)
+    if attempts > MAX_OTP_ATTEMPTS:
+        _redis.delete(key)
+        return False
+
     stored = _redis.get(key)
     if stored and stored == code:
         _redis.delete(key)
+        _redis.delete(attempts_key)
         return True
     return False
 

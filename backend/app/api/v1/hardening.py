@@ -10,7 +10,7 @@ import datetime
 import json
 import os
 import re
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from typing import Optional
 from urllib.request import Request as UrlRequest, urlopen
 from urllib.error import URLError
