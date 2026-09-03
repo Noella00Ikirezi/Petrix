@@ -5,11 +5,15 @@ Les valeurs sont lues depuis les variables d'environnement et un fichier `.env`
 dans toute la base de code afin que chaque sous-système partage le même objet de
 configuration validé.
 """
+import logging
 import secrets as _secrets
 from functools import lru_cache
 from typing import List
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -39,9 +43,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # Sécurité
-    # secret_key généré par processus si absent — les tokens deviennent invalides
-    # au redémarrage ; à fixer impérativement en production.
-    secret_key: str = _secrets.token_urlsafe(32)
+    # Chaîne vide par défaut : voir _check_secret_key ci-dessous. En dev (DEBUG=true)
+    # une clé aléatoire est générée avec un avertissement ; en production, l'absence
+    # de SECRET_KEY fait échouer le démarrage plutôt que de générer une clé par
+    # processus (ce qui invaliderait silencieusement les JWT entre workers/redémarrages).
+    secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
@@ -75,6 +81,30 @@ class Settings(BaseSettings):
     # Utilisateur admin (créé au premier démarrage)
     admin_email: str = "nikirezi@outlook.fr"
     admin_password: str = ""
+
+    @model_validator(mode="after")
+    def _check_secret_key(self) -> "Settings":
+        """Empêche un démarrage silencieux sans SECRET_KEY explicite en production.
+
+        Sans cette vérification, chaque processus (et chaque worker Uvicorn)
+        générerait sa propre clé aléatoire, ce qui invalide de façon
+        intermittente et difficile à diagnostiquer les JWT émis par les autres
+        workers, et efface toutes les sessions à chaque redémarrage.
+        """
+        if not self.secret_key:
+            if self.debug:
+                self.secret_key = _secrets.token_urlsafe(32)
+                logger.warning(
+                    "SECRET_KEY non défini — clé aléatoire générée pour ce "
+                    "processus (DEBUG=true uniquement). À fixer explicitement "
+                    "en production."
+                )
+            else:
+                raise ValueError(
+                    "SECRET_KEY doit être défini explicitement quand DEBUG=false "
+                    "(génère-en un avec : openssl rand -hex 32)"
+                )
+        return self
 
 
 @lru_cache

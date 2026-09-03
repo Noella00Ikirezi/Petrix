@@ -11,6 +11,7 @@ import json
 import os
 import re
 import xml.etree.ElementTree as ET
+from defusedxml.ElementTree import fromstring as _safe_xml_fromstring
 from typing import Optional
 from urllib.request import Request as UrlRequest, urlopen
 from urllib.error import URLError
@@ -715,7 +716,7 @@ async def import_xml_report(
         raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 5 Mo)")
 
     try:
-        root = ET.fromstring(content.decode("utf-8", errors="replace"))
+        root = _safe_xml_fromstring(content.decode("utf-8", errors="replace"))
     except ET.ParseError as exc:
         raise HTTPException(status_code=422, detail=f"XML invalide : {exc}")
 

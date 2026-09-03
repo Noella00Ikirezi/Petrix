@@ -239,6 +239,12 @@ async def verify_otp_endpoint(
     ip = _get_client_ip(request)
     ua = request.headers.get("user-agent", "")
 
+    if not check_rate_limit(f"verify-otp:{ip}", 10, 60):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Try again later.",
+        )
+
     payload = decode_token(data.mfa_token, expected_type="mfa_pending")
     if not payload:
         raise HTTPException(
@@ -396,9 +402,17 @@ async def logout(
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     data: RegisterRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Crée un nouveau compte utilisateur avec le rôle VIEWER par défaut."""
+    ip = _get_client_ip(request)
+    if not check_rate_limit(f"register:{ip}", 5, 300):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Try again later.",
+        )
+
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
         raise HTTPException(
@@ -524,9 +538,17 @@ async def forgot_password(
 @router.post("/reset-password")
 async def reset_password(
     data: ResetPasswordRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Valide le code OTP et réinitialise le mot de passe."""
+    ip = _get_client_ip(request)
+    if not check_rate_limit(f"reset-password:{ip}", 10, 60):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Try again later.",
+        )
+
     payload = decode_token(data.reset_token, expected_type="mfa_pending")
     if not payload or payload.get("purpose") != "password_reset":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token invalide ou expiré")
