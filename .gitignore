@@ -1,4 +1,4 @@
-# Secrets — NE JAMAIS committer ces fichiers
+# Secrets 
 .env
 .env.dev
 .env.prod
