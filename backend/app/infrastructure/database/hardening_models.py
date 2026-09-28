@@ -52,6 +52,15 @@ class HardeningTarget(Base):
     credentials: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     tags: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 
+    # Surveillance continue — voir hardening_ws.py. `agent_token_hash` est le hash bcrypt
+    # (get_password_hash) du token d'enrôlement généré une fois par /agent-enroll ; jamais
+    # stocké en clair. `is_online` n'est PAS persisté : il est dérivé de last_heartbeat_at
+    # pour éviter un état figé si le process backend redémarre ou si l'agent crashe.
+    mode: Mapped[str] = mapped_column(String(20), default="on_demand")
+    monitor_interval_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    agent_token_hash: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    last_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 

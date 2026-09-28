@@ -59,7 +59,10 @@ OS_MODULE_MAP: dict = {
     "macos_silicon": MACOS_SILICON_MODULES,
 }
 
-SUPPORTED_OS_TYPES = list(OS_MODULE_MAP.keys())
+# "proxmox_ve" n'a pas d'implémentation Python ici (ce moteur n'est plus utilisé pour
+# le scoring en runtime depuis la suppression des audits SSH — voir hardening.py) :
+# l'audit Proxmox VE s'exécute entièrement via l'agent bash standalone proxmox.sh.
+SUPPORTED_OS_TYPES = list(OS_MODULE_MAP.keys()) + ["proxmox_ve"]
 
 DEFAULT_MODULES_BY_OS: dict = {
     "linux":         list(LINUX_MODULES.keys()),

@@ -298,6 +298,13 @@ export const hardeningApi = {
   deleteTarget: async (id: string) => {
     await apiClient.delete(`/hardening/targets/${id}`);
   },
+  // Surveillance continue
+  enrollAgent: async (targetId: string, monitorIntervalSeconds = 300) => {
+    const response = await apiClient.post(`/hardening/targets/${targetId}/agent-enroll`, {
+      monitor_interval_seconds: monitorIntervalSeconds,
+    });
+    return response.data as { target_id: string; token: string; install_command: string };
+  },
   // Sessions
   listSessions: async () => {
     const response = await apiClient.get('/hardening/sessions');
@@ -363,3 +370,16 @@ export const hardeningCorrelationsApi = {
 
 // Export api as alias for apiClient (for components that use api directly)
 export const api = apiClient;
+
+/**
+ * Construit l'URL du WebSocket dashboard (surveillance temps réel) avec le JWT
+ * courant en query param — le handshake WS ne permet pas d'en-tête Authorization
+ * personnalisé depuis un navigateur, d'où ce choix (connexion toujours en wss:// en prod).
+ */
+export function buildHardeningDashboardWsUrl(): string | null {
+  const token = useAuthStore.getState().token;
+  if (!token) return null;
+  const base = API_BASE_URL || window.location.origin;
+  const wsBase = base.replace(/^http/, 'ws');
+  return `${wsBase}/api/v1/hardening/ws/dashboard?token=${encodeURIComponent(token)}`;
+}

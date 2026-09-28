@@ -35,6 +35,7 @@ import {
 import toast from 'react-hot-toast';
 import { hardeningApi, hardeningCorrelationsApi } from '@/api/client';
 import { MODULE_KNOWLEDGE, MODULE_ORDER, type ModuleKnowledge } from '@/data/moduleKnowledge';
+import { useHardeningLiveSocket } from '@/hooks/useHardeningLiveSocket';
 
 const MODULE_ICONS: Record<string, LucideIcon> = {
   lock: Lock, flame: Flame, hardDrive: HardDrive, shield: Shield,
@@ -51,6 +52,10 @@ type Target = {
   description?: string;
   tags?: string[];
   created_at: string;
+  mode?: string;
+  monitor_interval_seconds?: number;
+  is_online?: boolean;
+  last_heartbeat_at?: string | null;
 };
 
 type Session = {
@@ -738,7 +743,88 @@ function ImportXmlModal({ onClose, onImported }: { onClose: () => void; onImport
 
 // TargetModal et SessionModal supprimés — les systèmes sont gérés via /assets et les audits via agent local + import XML.
 
-function SessionCard({ session, osType = 'unknown' }: { session: Session; osType?: string }) {
+/**
+ * Modale d'activation de la surveillance continue pour une cible.
+ * Génère un token d'agent (POST /agent-enroll) et affiche la commande d'installation
+ * one-liner à exécuter par l'utilisateur sur la machine à surveiller (PVE host, serveur…).
+ * Le token n'est jamais ré-affichable après fermeture — copie obligatoire ici.
+ */
+function AgentEnrollModal({ target, onClose }: { target: Target; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [copied, setCopied] = useState(false);
+
+  const enrollMutation = useMutation({
+    mutationFn: () => hardeningApi.enrollAgent(target.id, 300),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hardening-targets'] });
+    },
+    onError: () => toast.error("Erreur lors de l'activation de la surveillance continue"),
+  });
+
+  const copyCommand = () => {
+    if (!enrollMutation.data) return;
+    navigator.clipboard.writeText(enrollMutation.data.install_command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
+        <h2 className="mb-1 text-lg font-bold dark:text-white">Surveillance continue — {target.name}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+          Installe un agent démon qui maintient une connexion permanente avec Petrix, ré-audite
+          automatiquement toutes les 5 minutes et pousse chaque rapport en temps réel.
+        </p>
+
+        {!enrollMutation.data ? (
+          <button
+            onClick={() => enrollMutation.mutate()}
+            disabled={enrollMutation.isPending}
+            className="btn btn-primary btn-md"
+          >
+            {enrollMutation.isPending
+              ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              : <Zap className="mr-2 h-4 w-4" />}
+            Générer la commande d'installation
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              Le token contenu dans cette commande ne sera plus jamais affiché. Copiez-la avant de fermer.
+            </div>
+            <p className="text-sm font-semibold dark:text-white">
+              À exécuter en root sur la machine à surveiller (host PVE ou serveur) :
+            </p>
+            <div className="relative">
+              <pre className="overflow-auto rounded-lg bg-gray-900 p-3 pr-16 text-xs text-green-400">
+                {enrollMutation.data.install_command}
+              </pre>
+              <button
+                onClick={copyCommand}
+                className="absolute right-2 top-2 rounded bg-gray-700 px-2 py-1 text-xs font-medium text-white hover:bg-gray-600"
+              >
+                {copied ? 'Copié !' : 'Copier'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Le service systemd <code className="rounded bg-gray-100 px-1 dark:bg-gray-700">petrix-agent</code>{' '}
+              démarre automatiquement et se reconnecte seul en cas de coupure réseau.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-6 flex justify-end">
+          <button className="btn btn-secondary btn-sm" onClick={onClose}>Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SessionCard({ session, osType = 'unknown', target }: { session: Session; osType?: string; target?: Target }) {
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [showCorr, setShowCorr] = useState(false);
   const certRef = useRef<HTMLDivElement>(null);
@@ -871,6 +957,28 @@ function SessionCard({ session, osType = 'unknown' }: { session: Session; osType
             )}
           </div>
           <p className="text-sm text-gray-500 font-mono">{session.target_host}</p>
+
+          {target && (
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              {target.mode === 'continuous' ? (
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
+                  target.is_online
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                }`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${target.is_online ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                  {target.is_online ? 'En ligne' : 'Hors ligne'}
+                </span>
+              ) : (
+                <button
+                  onClick={() => setShowEnrollModal(true)}
+                  className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline dark:text-primary-400"
+                >
+                  <Zap className="h-3 w-3" /> Activer la surveillance continue
+                </button>
+              )}
+            </div>
+          )}
 
           {session.status === 'auditing' && (
             <div className="mt-2 space-y-1">
@@ -1098,6 +1206,10 @@ function SessionCard({ session, osType = 'unknown' }: { session: Session; osType
           )}
         </div>
       )}
+
+      {showEnrollModal && target && (
+        <AgentEnrollModal target={target} onClose={() => setShowEnrollModal(false)} />
+      )}
     </div>
   );
 }
@@ -1117,6 +1229,10 @@ export default function HardeningPage() {
     queryKey: ['hardening-targets'],
     queryFn: hardeningApi.listTargets,
   });
+
+  // Surveillance temps réel : relaie heartbeat/agent_online/agent_offline/new_session
+  // dans le cache React Query (voir hooks/useHardeningLiveSocket.ts).
+  useHardeningLiveSocket(true);
 
   const { data: sessions = [], isLoading: loadingSessions } = useQuery<Session[]>({
     queryKey: ['hardening-sessions'],
@@ -1141,6 +1257,10 @@ export default function HardeningPage() {
 
   const targetOsMap = useMemo(
     () => Object.fromEntries(targets.map(t => [t.id, t.os_type])),
+    [targets],
+  );
+  const targetsById = useMemo(
+    () => Object.fromEntries(targets.map(t => [t.id, t])),
     [targets],
   );
   const filteredSessions = sessionsOsFilter === 'all'
@@ -1265,7 +1385,7 @@ export default function HardeningPage() {
           ) : (
             <div className="space-y-3">
               {filteredSessions.map(s => (
-                <SessionCard key={s.id} session={s} osType={targetOsMap[s.target_id] ?? 'unknown'} />
+                <SessionCard key={s.id} session={s} osType={targetOsMap[s.target_id] ?? 'unknown'} target={targetsById[s.target_id]} />
               ))}
             </div>
           )}

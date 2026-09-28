@@ -5,10 +5,17 @@ OTP à usage unique, liste noire de tokens JWT, suivi des refresh tokens et
 limitation de débit. Chaque famille de clés est isolée par un préfixe dédié
 pour éviter les collisions dans une instance Redis partagée.
 """
+import json
 import redis
 from app.config import settings
 
 _redis = redis.from_url(settings.redis_url, decode_responses=True)
+
+# Canal de diffusion des événements de surveillance temps réel (heartbeats, connexion/
+# déconnexion d'agent, nouvelles sessions). Publié par hardening_ws.py côté agent, relayé
+# aux clients dashboard via un abonnement Redis pub/sub — nécessaire car le backend tourne
+# avec plusieurs workers Uvicorn qui ne partagent pas d'état WebSocket en mémoire.
+HARDENING_LIVE_CHANNEL = "hardening:live"
 
 # Préfixes de clés — permettent une inspection/suppression ciblée en production
 OTP_PREFIX = "otp:"
@@ -92,6 +99,17 @@ def revoke_refresh_token(jti: str) -> None:
 def is_refresh_token_valid(jti: str) -> bool:
     """Retourne True si le JTI correspond à un refresh token encore actif."""
     return _redis.exists(f"{REFRESH_TOKEN_PREFIX}{jti}") > 0
+
+
+def publish_live_event(event: dict) -> None:
+    """Publie un événement de surveillance temps réel sur le canal Redis partagé.
+
+    Fire-and-forget : aucune erreur n'est levée si aucun abonné n'est connecté
+    (comportement standard de Redis PUBLISH). Utilisé par le WebSocket agent
+    (hardening_ws.py) pour notifier les dashboards connectés d'un heartbeat,
+    d'une connexion/déconnexion, ou d'une nouvelle session d'audit importée.
+    """
+    _redis.publish(HARDENING_LIVE_CHANNEL, json.dumps(event, default=str))
 
 
 def check_rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:

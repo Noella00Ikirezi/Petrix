@@ -3,7 +3,7 @@ Chaque module expose un router monté ici avec son préfixe URL et son tag OpenA
 """
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, assets, vulnerabilities, dashboard, system, audit_logs, hardening, agent_download, feed
+from app.api.v1 import auth, users, assets, vulnerabilities, dashboard, system, audit_logs, hardening, hardening_ws, agent_download, feed
 
 api_router = APIRouter()
 
@@ -15,5 +15,6 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboar
 api_router.include_router(system.router, prefix="/system", tags=["System"])
 api_router.include_router(audit_logs.router, prefix="/audit-logs", tags=["Audit Logs"])
 api_router.include_router(hardening.router, prefix="/hardening", tags=["Hardening"])
+api_router.include_router(hardening_ws.router, prefix="/hardening", tags=["Hardening Live"])
 api_router.include_router(agent_download.router, prefix="/agent", tags=["Agent"])
 api_router.include_router(feed.router, prefix="/feed", tags=["Security Feed"])

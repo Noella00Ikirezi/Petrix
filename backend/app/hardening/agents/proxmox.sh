@@ -1,0 +1,1311 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Petrix Audit Agent — Proxmox VE (ANSSI-BP-028 v2.0 + PVE Hardening v1)
+# 15 modules — ~110 vérifications Linux génériques + 8 vérifications Proxmox VE
+#
+# Référentiels : ANSSI-BP-028 v2.0 "Recommandations de configuration d'un système GNU/Linux"
+#                https://www.ssi.gouv.fr/guide/recommandations-de-securite-relatives-a-un-systeme-gnulinux/
+#                Proxmox VE Security — bonnes pratiques officielles (pveproxy, API tokens,
+#                cluster corosync, isolation LXC/VM) https://pve.proxmox.com/wiki/Security
+#
+# Auteur  : Noëlla IKIREZI ET MISSAK MATHIEU— ESGI 4SI4 / Projet annuel Petrix
+# Version : 1.0.0
+#
+# Le host PVE tourne sous Debian : ce script reprend l'intégralité des modules
+# Linux génériques (linux.sh) et ajoute un module [PVE] dédié à l'hyperviseur.
+# S'exécute LOCALEMENT sur le host PVE (aucun accès SSH requis).
+# Il génère un rapport XML structuré importable dans la plateforme Petrix via
+# l'endpoint POST /api/v1/hardening/import-xml.
+#
+# Usage :
+#   sudo bash petrix_agent_proxmox.sh
+#   sudo bash petrix_agent_proxmox.sh http://PETRIX_URL   # upload automatique
+#   sudo OUTFILE=/tmp/mon_audit.xml bash petrix_agent_proxmox.sh
+#
+# Résultat : fichier XML dans le répertoire courant (ou $OUTFILE)
+#            Score /100 + Grade (A→F) affiché dans le terminal
+# ==============================================================================
+
+# set -u : toute variable non initialisée provoque une erreur immédiate.
+# Évite les faux positifs silencieux (ex : variable vide interprétée comme "OK").
+set -u
+
+# ── Variables globales ────────────────────────────────────────────────────────
+# Informations système collectées au démarrage pour le rapport XML.
+PETRIX_URL="${1:-}"
+HOSTNAME_VAL=$(hostname -f 2>/dev/null || hostname)
+OS_NAME=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || uname -s)
+ARCH=$(uname -m)
+DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+PVE_VERSION=$(pveversion 2>/dev/null | head -1 || echo "")
+
+_FNAME="petrix_audit_${HOSTNAME_VAL}_$(date +%Y%m%d_%H%M%S).xml"
+OUTFILE="${OUTFILE:-$(pwd)/${_FNAME}}"
+
+# Compteurs globaux — mis à jour par chaque appel à _finding()
+# CRIT/HIGH_C/MED/LOW comptent uniquement les échecs (FAIL)
+TOTAL=0; PASSED=0; CRIT=0; HIGH_C=0; MED=0; LOW=0
+
+# Buffers XML construits au fil des checks, serialisés dans generate_xml()
+FINDINGS_XML=""; MODULE_SCORES=""
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+# xml_esc : échappe les 4 caractères spéciaux XML (&, <, >, ") pour garantir
+#           un rapport XML valide même si une valeur système contient ces caractères.
+xml_esc() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'; }
+
+# _finding : cœur du moteur de reporting — enregistre un résultat de check.
+#   $1  id       : identifiant unique du check (ex : SSH-001, KRN-002…)
+#   $2  module   : nom du module (ssh | kernel | users | pam | …)
+#   $3  sev      : sévérité (CRITICAL | HIGH | MEDIUM | LOW | INFO)
+#   $4  st       : statut (PASS | FAIL)
+#   $5  name     : libellé lisible du check
+#   $6  found    : valeur observée sur le système
+#   $7  expected : valeur attendue selon le référentiel ANSSI
+#   $8  rem      : commande de remédiation prête à copier-coller
+#   $9  ctx      : contexte additionnel (processus, chemin…) — facultatif
+#   $10 extra    : attribut XML supplémentaire (ex : dangerous="true") — facultatif
+_finding() {
+  local id="$1" module="$2" sev="$3" st="$4" name="$5"
+  local found="$6" expected="$7" rem="$8" ctx="${9:-}" extra="${10:-}"
+  TOTAL=$((TOTAL+1))
+  if [ "$st" = "PASS" ]; then
+    PASSED=$((PASSED+1))
+  else
+    case "$sev" in
+      CRITICAL) CRIT=$((CRIT+1)) ;;
+      HIGH)     HIGH_C=$((HIGH_C+1)) ;;
+      MEDIUM)   MED=$((MED+1)) ;;
+      LOW)      LOW=$((LOW+1)) ;;
+    esac
+  fi
+  FINDINGS_XML="${FINDINGS_XML}
+  <Finding id=\"$(xml_esc "$id")\" module=\"$(xml_esc "$module")\" severity=\"$(xml_esc "$sev")\" status=\"$(xml_esc "$st")\"${extra}>
+    <Name>$(xml_esc "$name")</Name>
+    <Found>$(xml_esc "$found")</Found>
+    <Expected>$(xml_esc "$expected")</Expected>
+    <Remediation>$(xml_esc "$rem")</Remediation>
+    <Context>$(xml_esc "$ctx")</Context>
+  </Finding>"
+}
+
+# ok   : alias PASS — found == expected, aucune remédiation nécessaire.
+# warn : alias FAIL — écart constaté avec sévérité et commande de correction.
+ok()   { _finding "$1" "$2" "INFO"  "PASS" "$3" "$4" "$4"  ""   "$5" ""; }
+warn() { _finding "$1" "$2" "$3" "FAIL" "$4" "$5" "$6" "$7" "$8" ""; }
+
+# sshd_val : lit une directive sshd en priorité via "sshd -T" (configuration
+#            compilée, inclut les valeurs par défaut et les Include) puis
+#            directement dans /etc/ssh/sshd_config en fallback.
+sshd_val() {
+  local d="$1" def="${2:-}"
+  local v d_lower
+  d_lower=$(echo "$d" | tr '[:upper:]' '[:lower:]')
+  v=$(sshd -T 2>/dev/null | grep -i "^${d_lower} " | awk '{print $2}' | head -1)
+  [ -z "$v" ] && v=$(grep -iE "^[[:space:]]*${d}[[:space:]]" /etc/ssh/sshd_config 2>/dev/null | tail -1 | awk '{print $2}')
+  echo "${v:-$def}"
+}
+
+# sysctl_val : lit un paramètre noyau en temps réel (valeur active, pas celle du fichier).
+sysctl_val() { sysctl -n "$1" 2>/dev/null || echo ""; }
+
+# mod_score : calcule le score du module (checks réussis / total × 100) et
+#             l'enregistre comme balise XML <Module name="..." score="nn" />.
+mod_score() {
+  local name="$1" t="$2" p="$3"
+  local sc=0; [ "$t" -gt 0 ] && sc=$(( p * 100 / t ))
+  MODULE_SCORES="${MODULE_SCORES}      <Module name=\"$(xml_esc "$name")\" score=\"$sc\" />\n"
+}
+
+# logindef_val : lit une valeur de politique dans /etc/login.defs (expiration mdp, umask…).
+logindef_val() {
+  grep -E "^${1}[[:space:]]" /etc/login.defs 2>/dev/null | awk '{print $2}' | tail -1
+}
+
+# fperm  : retourne les permissions en octal d'un fichier (ex : "640").
+# fowner : retourne le nom du propriétaire d'un fichier (ex : "root").
+fperm()  { stat -c '%a' "$1" 2>/dev/null || echo ""; }
+fowner() { stat -c '%U' "$1" 2>/dev/null || echo ""; }
+
+# ── [1] SSH ── ANSSI-BP-028 : Configuration du service OpenSSH ───────────────
+# SSH est le vecteur d'accès à distance le plus exposé. Sa configuration par
+# défaut est trop permissive pour un environnement de production.
+#
+# Checks : PermitRootLogin, PasswordAuthentication, PermitEmptyPasswords,
+#          X11/Agent/TCP Forwarding, UsePAM, StrictModes, IgnoreRhosts,
+#          MaxAuthTries, LoginGraceTime, ClientAliveInterval, Banner, version.
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_ssh() {
+  local t=0 p=0
+
+  # Guard: skip SSH config checks if SSH is not installed or not running
+  t=$((t+1))
+  if ! command -v sshd &>/dev/null; then
+    ok "SSH-000" "ssh" "SSH server" "Non installé (recommandé)" "Serveur SSH absent — surface d'attaque réduite"; p=$((p+1))
+    mod_score "ssh" "$t" "$p"; return
+  fi
+  if ! systemctl is-active --quiet sshd 2>/dev/null && ! systemctl is-active --quiet ssh 2>/dev/null; then
+    ok "SSH-000" "ssh" "SSH server" "Installé mais inactif" "Service SSH arrêté — OK si non nécessaire"; p=$((p+1))
+    mod_score "ssh" "$t" "$p"; return
+  fi
+
+  ssh_chk() {
+    local id="$1" dir="$2" exp="$3" sev="$4" desc="$5" rem="$6" def="${7:-}"
+    local val; val=$(sshd_val "$dir" "$def")
+    t=$((t+1))
+    local val_lower exp_lower
+    val_lower=$(echo "$val" | tr '[:upper:]' '[:lower:]')
+    exp_lower=$(echo "$exp" | tr '[:upper:]' '[:lower:]')
+    if [ "$val_lower" = "$exp_lower" ]; then
+      ok "$id" "ssh" "$dir" "$val" "$desc"; p=$((p+1))
+    else
+      warn "$id" "ssh" "$sev" "$dir" "${val:-défaut OpenSSH}" "$exp" "$rem" "$desc"
+    fi
+  }
+
+  ssh_chk "SSH-001" "PermitRootLogin"         "no"  "HIGH"     "Connexion root SSH directe"               "echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+  ssh_chk "SSH-002" "PasswordAuthentication"  "no"  "HIGH"     "Auth par mot de passe SSH"                "echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+  ssh_chk "SSH-003" "PermitEmptyPasswords"    "no"  "CRITICAL" "Mots de passe vides SSH autorisés"        "echo 'PermitEmptyPasswords no' >> /etc/ssh/sshd_config && systemctl restart sshd" "no"
+  ssh_chk "SSH-004" "X11Forwarding"           "no"  "MEDIUM"   "X11 Forwarding activé"                   "echo 'X11Forwarding no' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+  ssh_chk "SSH-005" "AllowAgentForwarding"    "no"  "MEDIUM"   "Agent forwarding SSH"                    "echo 'AllowAgentForwarding no' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+  ssh_chk "SSH-006" "AllowTcpForwarding"      "no"  "MEDIUM"   "TCP forwarding — tunneling non contrôlé" "echo 'AllowTcpForwarding no' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+  ssh_chk "SSH-007" "UsePAM"                  "yes" "MEDIUM"   "PAM désactivé pour SSH"                  "echo 'UsePAM yes' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+  ssh_chk "SSH-009" "StrictModes"             "yes" "MEDIUM"   "StrictModes désactivé"                   "echo 'StrictModes yes' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+  ssh_chk "SSH-012" "IgnoreRhosts"            "yes" "HIGH"     "Auth rhosts activée"                     "echo 'IgnoreRhosts yes' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+  ssh_chk "SSH-013" "HostbasedAuthentication" "no"  "HIGH"     "Auth basée sur l'hôte"                   "echo 'HostbasedAuthentication no' >> /etc/ssh/sshd_config && systemctl restart sshd" "no"
+  ssh_chk "SSH-018" "PermitUserEnvironment"   "no"  "MEDIUM"   "Variables env user via SSH"              "echo 'PermitUserEnvironment no' >> /etc/ssh/sshd_config && systemctl restart sshd" "no"
+  ssh_chk "SSH-019" "PrintLastLog"            "yes" "LOW"      "Dernier login non affiché"               "echo 'PrintLastLog yes' >> /etc/ssh/sshd_config && systemctl restart sshd" "yes"
+
+  # MaxAuthTries
+  t=$((t+1))
+  local mt; mt=$(sshd_val "MaxAuthTries" "6")
+  if [ "${mt:-6}" -le 4 ] 2>/dev/null; then
+    ok "SSH-015" "ssh" "MaxAuthTries" "$mt" "Limite tentatives SSH"; p=$((p+1))
+  else
+    warn "SSH-015" "ssh" "MEDIUM" "MaxAuthTries" "${mt:-6}" "<= 4" \
+      "sed -i 's/^#*MaxAuthTries.*/MaxAuthTries 4/' /etc/ssh/sshd_config && systemctl restart sshd" \
+      "Trop de tentatives d'auth autorisées"
+  fi
+
+  # LoginGraceTime
+  t=$((t+1))
+  local lgt; lgt=$(sshd_val "LoginGraceTime" "120")
+  if [ "${lgt:-120}" -le 60 ] 2>/dev/null; then
+    ok "SSH-008" "ssh" "LoginGraceTime" "${lgt}s" "Délai d'auth SSH"; p=$((p+1))
+  else
+    warn "SSH-008" "ssh" "MEDIUM" "LoginGraceTime" "${lgt:-120}s" "<= 60s" \
+      "echo 'LoginGraceTime 60' >> /etc/ssh/sshd_config && systemctl restart sshd" \
+      "Délai d'auth trop long — exposition aux attaques"
+  fi
+
+  # ClientAliveInterval : détecte et déconnecte les sessions inactives (zombies).
+  t=$((t+1))
+  local ci; ci=$(sshd_val "ClientAliveInterval" "0")
+  if [ "${ci:-0}" -gt 0 ] && [ "${ci:-0}" -le 300 ] 2>/dev/null; then
+    ok "SSH-016" "ssh" "ClientAliveInterval" "${ci}s" "Timeout session SSH"; p=$((p+1))
+  else
+    warn "SSH-016" "ssh" "MEDIUM" "ClientAliveInterval" "${ci:-0} (désactivé)" "<= 300s" \
+      "echo 'ClientAliveInterval 300' >> /etc/ssh/sshd_config && systemctl restart sshd" \
+      "Sessions inactives non terminées"
+  fi
+
+  # ClientAliveCountMax
+  t=$((t+1))
+  local cc; cc=$(sshd_val "ClientAliveCountMax" "3")
+  if [ "${cc:-3}" -le 3 ] 2>/dev/null; then
+    ok "SSH-017" "ssh" "ClientAliveCountMax" "$cc" "Keep-alive SSH max"; p=$((p+1))
+  else
+    warn "SSH-017" "ssh" "LOW" "ClientAliveCountMax" "${cc:-3}" "<= 3" \
+      "echo 'ClientAliveCountMax 3' >> /etc/ssh/sshd_config && systemctl restart sshd" \
+      "Déconnexion tardive des sessions mortes"
+  fi
+
+  # Banner : obligation légale d'avertissement avant connexion.
+  t=$((t+1))
+  local banner; banner=$(sshd_val "Banner" "none")
+  if [ -n "$banner" ] && [ "$banner" != "none" ] && [ -f "$banner" ] 2>/dev/null; then
+    ok "SSH-011" "ssh" "Banner SSH" "$banner" "Bannière légale d'avertissement"; p=$((p+1))
+  else
+    warn "SSH-011" "ssh" "LOW" "Banner SSH" "${banner:-non configurée}" "/etc/issue.net" \
+      "echo 'Acces reserve aux utilisateurs autorises' > /etc/issue.net && echo 'Banner /etc/issue.net' >> /etc/ssh/sshd_config && systemctl restart sshd" \
+      "Pas de bannière d'avertissement légale"
+  fi
+
+  # Version OpenSSH
+  t=$((t+1))
+  local sshver; sshver=$(ssh -V 2>&1 | head -1)
+  ok "SSH-023" "ssh" "OpenSSH version" "$sshver" "Version OpenSSH installée"; p=$((p+1))
+
+  mod_score "ssh" "$t" "$p"
+}
+
+# ── [2] KERNEL ── ANSSI-BP-028 : Paramètres noyau et réseau (sysctl) ─────────
+# Les paramètres sysctl durcissent le comportement réseau et mémoire du noyau.
+# Ils sont activés en temps réel et persistés dans /etc/sysctl.d/99-*.conf.
+#
+# Checks clés :
+#   kernel.randomize_va_space=2  → ASLR — randomise l'espace mémoire des processus,
+#                                   protège contre les attaques ret2libc/heap spray
+#   net.ipv4.tcp_syncookies=1    → protection contre les attaques SYN flood (déni de service)
+#   net.ipv4.ip_forward=0        → empêche la machine d'agir comme routeur entre interfaces
+#   kernel.yama.ptrace_scope=1   → limite ptrace aux processus parents (anti-injection de code)
+#   kernel.dmesg_restrict=1      → masque les adresses noyau aux non-root (anti-info leak)
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_kernel() {
+  local t=0 p=0
+
+  kchk() {
+    local id="$1" param="$2" exp="$3" sev="$4" desc="$5"
+    local val; val=$(sysctl_val "$param")
+    t=$((t+1))
+    if [ "$val" = "$exp" ]; then
+      ok "$id" "kernel" "$param" "$val" "$desc"; p=$((p+1))
+    else
+      warn "$id" "kernel" "$sev" "$param" "${val:-non défini}" "$exp" \
+        "sysctl -w $param=$exp && echo '$param = $exp' >> /etc/sysctl.d/99-petrix.conf" "$desc"
+    fi
+  }
+
+  kchk "KRN-001" "kernel.randomize_va_space"                 "2" "HIGH"   "ASLR — protection ret2libc"
+  kchk "KRN-002" "net.ipv4.tcp_syncookies"                    "1" "HIGH"   "SYN cookies — anti-SYN flood"
+  kchk "KRN-003" "net.ipv4.ip_forward"                        "0" "HIGH"   "IP forwarding — routage non désiré"
+  kchk "KRN-004" "net.ipv4.conf.all.send_redirects"           "0" "MEDIUM" "Envoi redirections ICMP (all)"
+  kchk "KRN-005" "net.ipv4.conf.all.accept_redirects"         "0" "MEDIUM" "Acceptation redirections ICMP (all)"
+  kchk "KRN-006" "net.ipv4.conf.all.accept_source_route"      "0" "MEDIUM" "Source routing (all)"
+  kchk "KRN-007" "net.ipv4.conf.all.log_martians"             "1" "LOW"    "Paquets martians non loggés"
+  kchk "KRN-008" "kernel.dmesg_restrict"                      "1" "MEDIUM" "dmesg accessible aux non-root"
+  kchk "KRN-009" "kernel.kptr_restrict"                       "2" "MEDIUM" "Adresses noyau exposées"
+  kchk "KRN-010" "fs.suid_dumpable"                           "0" "MEDIUM" "Core dumps SUID autorisés"
+  kchk "KRN-011" "net.ipv6.conf.all.accept_ra"                "0" "LOW"    "Router Advertisements IPv6"
+  kchk "KRN-012" "kernel.yama.ptrace_scope"                   "1" "MEDIUM" "ptrace non restreint"
+  kchk "KRN-013" "net.ipv4.conf.default.accept_redirects"     "0" "MEDIUM" "Acceptation redirections ICMP (default)"
+  kchk "KRN-014" "net.ipv4.conf.default.send_redirects"       "0" "MEDIUM" "Envoi redirections ICMP (default)"
+  kchk "KRN-015" "net.ipv6.conf.all.forwarding"               "0" "LOW"    "IPv6 forwarding"
+  kchk "KRN-016" "net.ipv4.conf.all.rp_filter"                "1" "MEDIUM" "Reverse Path Filtering désactivé"
+  kchk "KRN-017" "net.ipv4.icmp_echo_ignore_broadcasts"       "1" "LOW"    "Réponse broadcasts ICMP (Smurf)"
+  kchk "KRN-018" "net.ipv4.icmp_ignore_bogus_error_responses" "1" "LOW"    "Réponses ICMP bogus"
+  kchk "KRN-019" "kernel.sysrq"                               "0" "MEDIUM" "Magic SysRq — commandes noyau directes"
+  kchk "KRN-020" "kernel.core_uses_pid"                       "1" "LOW"    "Nom des core dumps sans PID"
+
+  mod_score "kernel" "$t" "$p"
+}
+
+# ── [3] USERS ── ANSSI-BP-028 : Gestion des comptes et politique de mots de passe
+# Vérifie la politique de comptes : doublons root, mots de passe vides,
+# sudo sans mot de passe, expiration des mots de passe.
+#
+# Checks clés :
+#   UID 0 non-root : tout compte avec UID 0 possède des droits root complets,
+#                    même sans s'appeler "root"
+#   NOPASSWD sudo  : permet l'élévation de privilèges sans authentification
+#   PASS_MAX_DAYS  : ANSSI recommande <= 90 jours — limite la fenêtre
+#                    d'exploitation d'un mot de passe compromis
+#   UMASK 027/077  : fichiers créés non lisibles par les autres utilisateurs par défaut
+#   PATH root      : un "." dans le PATH root permet l'exécution d'un binaire
+#                    malveillant déposé dans le répertoire courant
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_users() {
+  local t=0 p=0
+
+  t=$((t+1))
+  local uid0; uid0=$(awk -F: '($3==0 && $1!="root"){print $1}' /etc/passwd 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+  if [ -z "$uid0" ]; then
+    ok "USR-001" "users" "Comptes UID 0" "root uniquement" "Comptes avec privilèges root"; p=$((p+1))
+  else
+    warn "USR-001" "users" "CRITICAL" "Comptes UID 0 non-root" "$uid0" "root uniquement" \
+      "Corriger les UID dupliqués dans /etc/passwd" "Comptes root supplémentaires"
+  fi
+
+  t=$((t+1))
+  # $2=="" means truly empty password (dangerous). $2=="!" or "!!" means locked/disabled (safe).
+  local epw; epw=$(awk -F: '($2==""){print $1}' /etc/shadow 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+  if [ -z "$epw" ]; then
+    ok "USR-002" "users" "Mots de passe vides" "Aucun" "Comptes sans mot de passe"; p=$((p+1))
+  else
+    warn "USR-002" "users" "CRITICAL" "Comptes sans mot de passe" "$epw" "Aucun" \
+      "passwd <utilisateur> pour chaque compte" "Comptes sans authentification"
+  fi
+
+  t=$((t+1))
+  local nopw; nopw=$(grep -rh "NOPASSWD" /etc/sudoers /etc/sudoers.d/ 2>/dev/null | grep -v "^#" | head -3 | tr '\n' ';')
+  if [ -z "$nopw" ]; then
+    ok "USR-003" "users" "NOPASSWD sudo" "Aucune règle" "Sudo sans mot de passe"; p=$((p+1))
+  else
+    warn "USR-003" "users" "HIGH" "Sudo NOPASSWD" "$nopw" "Aucune règle NOPASSWD" \
+      "Éditer /etc/sudoers et supprimer les règles NOPASSWD" "Élévation sans authentification"
+  fi
+
+  t=$((t+1))
+  local shellac; shellac=$(awk -F: '($7!="/sbin/nologin"&&$7!="/bin/false"&&$7!=""&&$3>=1000){print $1}' /etc/passwd 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+  ok "USR-004" "users" "Comptes avec shell" "${shellac:-aucun}" "Inventaire comptes accès shell"; p=$((p+1))
+
+  # PASS_MAX_DAYS
+  t=$((t+1))
+  local pmax; pmax=$(logindef_val "PASS_MAX_DAYS")
+  if [ -n "$pmax" ] && [ "$pmax" -le 90 ] 2>/dev/null; then
+    ok "USR-005" "users" "PASS_MAX_DAYS" "$pmax jours" "Expiration max des mots de passe"; p=$((p+1))
+  else
+    warn "USR-005" "users" "MEDIUM" "PASS_MAX_DAYS" "${pmax:-non défini}" "<= 90 jours" \
+      "sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS\t90/' /etc/login.defs" \
+      "Mots de passe sans expiration — ANSSI: 90 jours max"
+  fi
+
+  # PASS_MIN_DAYS : empêche le changement immédiat de mot de passe (contournement historique).
+  t=$((t+1))
+  local pmin; pmin=$(logindef_val "PASS_MIN_DAYS")
+  if [ -n "$pmin" ] && [ "$pmin" -ge 1 ] 2>/dev/null; then
+    ok "USR-006" "users" "PASS_MIN_DAYS" "$pmin jour(s)" "Durée min avant changement mdp"; p=$((p+1))
+  else
+    warn "USR-006" "users" "MEDIUM" "PASS_MIN_DAYS" "${pmin:-0}" ">= 1 jour" \
+      "sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS\t1/' /etc/login.defs" \
+      "Changement immédiat possible — contournement historique"
+  fi
+
+  # PASS_WARN_AGE
+  t=$((t+1))
+  local pwarn; pwarn=$(logindef_val "PASS_WARN_AGE")
+  if [ -n "$pwarn" ] && [ "$pwarn" -ge 7 ] 2>/dev/null; then
+    ok "USR-007" "users" "PASS_WARN_AGE" "$pwarn jours" "Avertissement expiration mdp"; p=$((p+1))
+  else
+    warn "USR-007" "users" "LOW" "PASS_WARN_AGE" "${pwarn:-0}" ">= 7 jours" \
+      "sed -i 's/^PASS_WARN_AGE.*/PASS_WARN_AGE\t7/' /etc/login.defs" \
+      "Utilisateurs non avertis de l'expiration"
+  fi
+
+  # UMASK
+  t=$((t+1))
+  local umask_val; umask_val=$(grep -E "^UMASK" /etc/login.defs 2>/dev/null | awk '{print $2}' | head -1)
+  if [ "$umask_val" = "027" ] || [ "$umask_val" = "077" ]; then
+    ok "USR-009" "users" "UMASK système" "$umask_val" "Masque de création de fichiers restrictif"; p=$((p+1))
+  else
+    warn "USR-009" "users" "MEDIUM" "UMASK système" "${umask_val:-022}" "027 ou 077" \
+      "sed -i 's/^UMASK.*/UMASK\t\t027/' /etc/login.defs" \
+      "Fichiers créés trop permissifs par défaut"
+  fi
+
+  # PATH root sans "."
+  t=$((t+1))
+  local root_path_check; root_path_check=$(grep -hE "^PATH=|^export PATH=" /root/.bashrc /root/.bash_profile /etc/profile 2>/dev/null | head -3)
+  if echo "${root_path_check}${PATH:-}" | tr ':' '\n' | grep -qx '\.'; then
+    warn "USR-010" "users" "HIGH" "PATH root contient '.'" ".(point) présent" "Pas de '.' dans PATH" \
+      "Supprimer '.' du PATH dans /root/.bashrc et /etc/profile" \
+      "Exécution d'un binaire malveillant dans le dossier courant possible"
+  else
+    ok "USR-010" "users" "PATH root" "Sans '.'" "PATH root sans répertoire courant"; p=$((p+1))
+  fi
+
+  # /etc/cron.allow
+  t=$((t+1))
+  if [ -f /etc/cron.allow ]; then
+    ok "USR-011" "users" "/etc/cron.allow" "Présent" "Restriction d'accès à cron"; p=$((p+1))
+  else
+    warn "USR-011" "users" "MEDIUM" "/etc/cron.allow" "Absent" "Présent" \
+      "touch /etc/cron.allow && chmod 640 /etc/cron.allow" \
+      "Tout utilisateur peut planifier des tâches cron"
+  fi
+
+  # /etc/at.allow
+  t=$((t+1))
+  if [ -f /etc/at.allow ]; then
+    ok "USR-012" "users" "/etc/at.allow" "Présent" "Restriction d'accès à at"; p=$((p+1))
+  else
+    warn "USR-012" "users" "LOW" "/etc/at.allow" "Absent" "Présent" \
+      "touch /etc/at.allow && chmod 640 /etc/at.allow" \
+      "Tout utilisateur peut planifier des tâches via at"
+  fi
+
+  mod_score "users" "$t" "$p"
+}
+
+# ── [4] PAM ── ANSSI-BP-028 : Politique d'authentification et verrouillage ───
+# PAM (Pluggable Authentication Modules) centralise la politique d'authentification.
+# Il gère la complexité des mots de passe ET le verrouillage après échecs successifs.
+#
+# Checks clés :
+#   pam_pwquality/cracklib : impose longueur et complexité des mots de passe
+#   minlen >= 12           : longueur minimale recommandée par l'ANSSI-BP-028
+#   pam_faillock           : verrouille le compte après N tentatives échouées —
+#                            protection contre la force brute locale (console physique)
+#   unlock_time >= 900s    : 15 min minimum pour ralentir significativement les attaques
+#   remember >= 5          : empêche la réutilisation des 5 derniers mots de passe
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_pam() {
+  local t=0 p=0
+  local pwq_conf="/etc/security/pwquality.conf"
+  local pam_pass_files="/etc/pam.d/common-password /etc/pam.d/password-auth /etc/pam.d/system-auth"
+  local pam_auth_files="/etc/pam.d/common-auth /etc/pam.d/password-auth /etc/pam.d/system-auth"
+
+  # pam_pwquality présent
+  t=$((t+1))
+  if grep -qE "pam_pwquality|pam_cracklib" $pam_pass_files 2>/dev/null; then
+    ok "PAM-001" "pam" "pam_pwquality" "Configuré" "Politique de complexité des mots de passe"; p=$((p+1))
+  else
+    warn "PAM-001" "pam" "HIGH" "pam_pwquality" "Non configuré" "Dans /etc/pam.d/common-password" \
+      "apt-get install -y libpam-pwquality  OU  dnf install -y libpwquality" \
+      "Aucune politique de complexité de mot de passe"
+  fi
+
+  # minlen >= 12
+  t=$((t+1))
+  local minlen; minlen=$(grep -E "^minlen" "$pwq_conf" 2>/dev/null | grep -oE "[0-9]+" | head -1)
+  if [ -n "$minlen" ] && [ "$minlen" -ge 12 ] 2>/dev/null; then
+    ok "PAM-002" "pam" "minlen" "$minlen caractères" "Longueur minimum des mots de passe"; p=$((p+1))
+  else
+    warn "PAM-002" "pam" "HIGH" "minlen" "${minlen:-non défini}" ">= 12 caractères" \
+      "echo 'minlen = 12' >> /etc/security/pwquality.conf" \
+      "Mots de passe trop courts autorisés"
+  fi
+
+  # dcredit — au moins 1 chiffre requis
+  t=$((t+1))
+  local dcred; dcred=$(grep -E "^dcredit" "$pwq_conf" 2>/dev/null | grep -oE "\-?[0-9]+" | head -1)
+  if [ -n "$dcred" ] && [ "$dcred" -le -1 ] 2>/dev/null; then
+    ok "PAM-003" "pam" "dcredit" "$dcred (chiffre requis)" "Exigence de chiffre dans le mdp"; p=$((p+1))
+  else
+    warn "PAM-003" "pam" "MEDIUM" "dcredit (chiffres)" "${dcred:-non défini}" "<= -1 (au moins 1 chiffre)" \
+      "echo 'dcredit = -1' >> /etc/security/pwquality.conf" \
+      "Pas de chiffre requis dans les mots de passe"
+  fi
+
+  # Historique mots de passe
+  t=$((t+1))
+  local remember; remember=$(grep -hE "remember=" $pam_pass_files 2>/dev/null | grep -oE "remember=[0-9]+" | cut -d= -f2 | tail -1)
+  if [ -n "$remember" ] && [ "$remember" -ge 5 ] 2>/dev/null; then
+    ok "PAM-004" "pam" "Historique mdp" "$remember anciens" "Prévention réutilisation de mots de passe"; p=$((p+1))
+  else
+    warn "PAM-004" "pam" "MEDIUM" "Historique mdp (remember)" "${remember:-0}" ">= 5 anciens" \
+      "Ajouter 'remember=5' à pam_pwhistory dans /etc/pam.d/common-password" \
+      "Réutilisation des anciens mots de passe possible"
+  fi
+
+  # pam_faillock / pam_tally2 — verrouillage compte
+  t=$((t+1))
+  if grep -qE "pam_faillock|pam_tally2" $pam_auth_files 2>/dev/null; then
+    ok "PAM-005" "pam" "pam_faillock" "Configuré" "Verrouillage après échecs d'auth"; p=$((p+1))
+  else
+    warn "PAM-005" "pam" "HIGH" "pam_faillock" "Non configuré" "Dans /etc/pam.d/common-auth" \
+      "Configurer pam_faillock deny=5 unlock_time=900 dans /etc/pam.d/common-auth" \
+      "Pas de protection contre la force brute locale"
+  fi
+
+  # unlock_time >= 900s
+  t=$((t+1))
+  local unlock_time; unlock_time=$(grep -hE "unlock_time=" /etc/security/faillock.conf $pam_auth_files 2>/dev/null | grep -oE "unlock_time=[0-9]+" | cut -d= -f2 | tail -1)
+  if [ -n "$unlock_time" ] && [ "$unlock_time" -ge 900 ] 2>/dev/null; then
+    ok "PAM-006" "pam" "unlock_time" "${unlock_time}s" "Durée de verrouillage après échecs"; p=$((p+1))
+  else
+    warn "PAM-006" "pam" "MEDIUM" "unlock_time" "${unlock_time:-non défini}" ">= 900s (15 min)" \
+      "echo 'unlock_time = 900' >> /etc/security/faillock.conf" \
+      "Verrouillage trop court — force brute locale possible"
+  fi
+
+  mod_score "pam" "$t" "$p"
+}
+
+# ── [5] MONTAGE DES PARTITIONS ── ANSSI-BP-028 : Options de montage ──────────
+# Vérifie les options de montage des partitions sensibles pour limiter l'exécution
+# de code malveillant déposé dans des répertoires temporaires accessibles à tous.
+#
+# Options critiques :
+#   noexec : empêche l'exécution directe de binaires depuis la partition
+#            (contre les attaques par dépôt de payload dans /tmp)
+#   nosuid : désactive les bits setuid — un binaire setuid dans /tmp ne peut plus
+#            être utilisé pour une élévation de privilèges locale
+#   nodev  : empêche la création ou l'utilisation de fichiers device spéciaux
+#
+# /dev/shm est particulièrement sensible : c'est de la RAM partagée, utilisée
+# par certains malwares pour exécuter du code directement en mémoire.
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_mounts() {
+  local t=0 p=0
+
+  mnt_chk() {
+    local id="$1" mpoint="$2" opt="$3" sev="$4" desc="$5"
+    t=$((t+1))
+    local found_opts; found_opts=$(grep -E "^[^ ]+ ${mpoint} " /proc/mounts 2>/dev/null | tail -1 | awk '{print $4}')
+    if [ -z "$found_opts" ]; then
+      warn "$id" "mounts" "LOW" "$mpoint" "Pas de partition dédiée" "Partition dédiée avec $opt" \
+        "Ajouter dans /etc/fstab : tmpfs $mpoint tmpfs defaults,$opt 0 0" "$desc"
+      return
+    fi
+    if echo ",$found_opts," | grep -q ",$opt,"; then
+      ok "$id" "mounts" "$mpoint ($opt)" "Présent" "$desc"; p=$((p+1))
+    else
+      warn "$id" "mounts" "$sev" "$mpoint — $opt manquant" "Option absente" "Présente" \
+        "Ajouter $opt dans /etc/fstab pour $mpoint puis : mount -o remount,$opt $mpoint" "$desc"
+    fi
+  }
+
+  mnt_chk "MNT-001" "/tmp"     "nodev"   "MEDIUM" "/tmp sans nodev — montage de périphériques possible"
+  mnt_chk "MNT-002" "/tmp"     "nosuid"  "MEDIUM" "/tmp sans nosuid — binaires setuid exécutables"
+  mnt_chk "MNT-003" "/tmp"     "noexec"  "MEDIUM" "/tmp sans noexec — scripts exécutables dans /tmp"
+  mnt_chk "MNT-004" "/dev/shm" "nodev"   "HIGH"   "/dev/shm sans nodev"
+  mnt_chk "MNT-005" "/dev/shm" "nosuid"  "HIGH"   "/dev/shm sans nosuid"
+  mnt_chk "MNT-006" "/dev/shm" "noexec"  "HIGH"   "/dev/shm sans noexec — exécution en mémoire partagée"
+  mnt_chk "MNT-007" "/home"    "nodev"   "LOW"    "/home sans nodev"
+  mnt_chk "MNT-008" "/var/tmp" "nodev"   "MEDIUM" "/var/tmp sans nodev"
+  mnt_chk "MNT-009" "/var/tmp" "nosuid"  "MEDIUM" "/var/tmp sans nosuid"
+
+  mod_score "mounts" "$t" "$p"
+}
+
+# ── [6] PERMISSIONS FICHIERS SENSIBLES ── ANSSI-BP-028 : Contrôle d'accès ────
+# Vérifie les permissions et propriétaires des fichiers système critiques.
+# Une permission trop ouverte sur ces fichiers est une faille d'escalade de privilèges.
+#
+# Fichiers contrôlés et seuils attendus :
+#   /etc/shadow  : hashages des mots de passe — max 640, propriétaire root
+#   /etc/passwd  : base de comptes — 644 root (lecture OK, écriture root uniquement)
+#   /etc/sudoers : règles d'élévation — 440 root (lecture seule pour root uniquement)
+#   /etc/ssh/sshd_config : configuration SSH — 600 root (privé)
+#   Clés SSH host privées : 600, propriétaire root obligatoire
+#   .rhosts / .netrc : mécanismes d'auth obsolètes et dangereux — ne doivent pas exister
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_perms() {
+  local t=0 p=0
+
+  pchk() {
+    local id="$1" fpath="$2" exp_perm="$3" exp_owner="$4" sev="$5" desc="$6" rem="$7"
+    t=$((t+1))
+    [ ! -e "$fpath" ] && { ok "$id" "perms" "$fpath" "Absent (non applicable)" "$desc"; p=$((p+1)); return; }
+    local perm owner
+    perm=$(fperm "$fpath"); owner=$(fowner "$fpath")
+    if [ "$perm" = "$exp_perm" ] && [ "$owner" = "$exp_owner" ]; then
+      ok "$id" "perms" "$fpath" "$perm ($owner)" "$desc"; p=$((p+1))
+    else
+      warn "$id" "perms" "$sev" "$fpath" "$perm ($owner)" "$exp_perm ($exp_owner)" "$rem" "$desc"
+    fi
+  }
+
+  # /etc/shadow — accepte 640 ou 000 (RHEL), propriétaire root
+  shadow_chk() {
+    local id="$1" fpath="$2" sev="$3" desc="$4" rem="$5"
+    t=$((t+1))
+    [ ! -e "$fpath" ] && { ok "$id" "perms" "$fpath" "Absent (non applicable)" "$desc"; p=$((p+1)); return; }
+    local perm owner
+    perm=$(fperm "$fpath"); owner=$(fowner "$fpath")
+    local other; other=$(echo "${perm:-777}" | rev | cut -c1)
+    if [ "$other" = "0" ] && [ "$owner" = "root" ]; then
+      ok "$id" "perms" "$fpath" "$perm ($owner)" "$desc"; p=$((p+1))
+    else
+      warn "$id" "perms" "$sev" "$fpath" "$perm ($owner)" "max 640, owner root" "$rem" "$desc"
+    fi
+  }
+
+  pchk    "PERM-001" "/etc/passwd"           "644" "root" "HIGH"   "Permissions /etc/passwd"             "chmod 644 /etc/passwd && chown root:root /etc/passwd"
+  shadow_chk "PERM-002" "/etc/shadow"                    "HIGH"   "Permissions /etc/shadow (hashs mdp)" "chmod 640 /etc/shadow && chown root:shadow /etc/shadow"
+  shadow_chk "PERM-003" "/etc/gshadow"                   "HIGH"   "Permissions /etc/gshadow"            "chmod 640 /etc/gshadow && chown root:shadow /etc/gshadow"
+  pchk    "PERM-004" "/etc/group"            "644" "root" "MEDIUM" "Permissions /etc/group"              "chmod 644 /etc/group && chown root:root /etc/group"
+  pchk    "PERM-005" "/etc/sudoers"          "440" "root" "HIGH"   "Permissions /etc/sudoers"            "chmod 440 /etc/sudoers && chown root:root /etc/sudoers"
+  pchk    "PERM-007" "/etc/crontab"          "600" "root" "MEDIUM" "Permissions /etc/crontab"            "chmod 600 /etc/crontab && chown root:root /etc/crontab"
+  pchk    "PERM-008" "/etc/ssh/sshd_config"  "600" "root" "MEDIUM" "Permissions sshd_config"             "chmod 600 /etc/ssh/sshd_config && chown root:root /etc/ssh/sshd_config"
+  pchk    "PERM-009" "/root"                 "700" "root" "HIGH"   "Permissions répertoire /root"        "chmod 700 /root && chown root:root /root"
+
+  # SSH host private keys
+  t=$((t+1))
+  local bad_keys=""
+  for keyfile in /etc/ssh/ssh_host_*_key; do
+    [ -f "$keyfile" ] || continue
+    local kperm; kperm=$(fperm "$keyfile")
+    [ "$kperm" != "600" ] && bad_keys="$bad_keys $keyfile($kperm)"
+  done
+  if [ -z "$bad_keys" ]; then
+    ok "PERM-006" "perms" "Clés SSH host privées" "600 (correct)" "Permissions des clés SSH du serveur"; p=$((p+1))
+  else
+    warn "PERM-006" "perms" "HIGH" "Clés SSH host privées" "$bad_keys" "600" \
+      "chmod 600 /etc/ssh/ssh_host_*_key" "Clés privées SSH lisibles par des non-root"
+  fi
+
+  # Fichiers .rhosts / .netrc
+  t=$((t+1))
+  local rhosts; rhosts=$(find /home /root -name ".rhosts" -o -name ".netrc" 2>/dev/null | head -5 | tr '\n' ';')
+  if [ -z "$rhosts" ]; then
+    ok "PERM-010" "perms" "Fichiers .rhosts/.netrc" "Aucun" "Absence d'auth faible"; p=$((p+1))
+  else
+    warn "PERM-010" "perms" "HIGH" "Fichiers .rhosts/.netrc présents" "$rhosts" "Aucun" \
+      "rm -f \$(find /home /root -name '.rhosts' -o -name '.netrc')" \
+      "Fichiers d'authentification faible détectés"
+  fi
+
+  mod_score "perms" "$t" "$p"
+}
+
+# ── [7] MAC (AppArmor / SELinux) ── ANSSI-BP-028 : Contrôle d'accès mandatoire
+# Le MAC confine les processus selon des profils définis indépendamment des
+# permissions UNIX classiques (DAC). Sans MAC, un processus compromis peut
+# accéder à tout fichier lisible par son utilisateur système.
+#
+# AppArmor (Ubuntu/Debian) : profils par chemin de fichier
+# SELinux (RHEL/CentOS)    : politiques de type enforcement
+#
+# En mode "enforce", toute action non autorisée est bloquée ET loggée,
+# permettant la détection d'une tentative de sortie de sandbox.
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_mac() {
+  local t=2 p=0
+
+  if command -v aa-status &>/dev/null; then
+    local enforce_c; enforce_c=$(aa-status 2>/dev/null | grep "profiles are in enforce mode" | grep -oE "^[0-9]+")
+    if [ -n "$enforce_c" ] && [ "$enforce_c" -gt 0 ] 2>/dev/null; then
+      ok "MAC-001" "mac" "AppArmor" "$enforce_c profiles enforce" "Contrôle d'accès obligatoire actif"; p=$((p+1))
+      ok "MAC-002" "mac" "AppArmor mode" "enforce" "Profiles AppArmor en mode enforce"; p=$((p+1))
+    else
+      warn "MAC-001" "mac" "HIGH" "AppArmor" "0 profiles enforce" "AppArmor actif avec profiles" \
+        "aa-enforce /etc/apparmor.d/*" "Aucun profil AppArmor en mode enforce"
+      warn "MAC-002" "mac" "MEDIUM" "AppArmor mode" "complain ou vide" "enforce" \
+        "aa-enforce /etc/apparmor.d/*" "Profils non en enforce"
+    fi
+  elif command -v getenforce &>/dev/null; then
+    local selval; selval=$(getenforce 2>/dev/null)
+    local selval_lower; selval_lower=$(echo "$selval" | tr '[:upper:]' '[:lower:]')
+    if [ "$selval_lower" = "enforcing" ]; then
+      ok "MAC-001" "mac" "SELinux" "enforcing" "Contrôle d'accès obligatoire actif"; p=$((p+1))
+      ok "MAC-002" "mac" "SELinux mode" "enforcing" "SELinux en mode enforcing"; p=$((p+1))
+    else
+      warn "MAC-001" "mac" "HIGH" "SELinux" "${selval:-désactivé}" "enforcing" \
+        "setenforce 1 && sed -i 's/SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config" \
+        "SELinux non en mode enforcing"
+      warn "MAC-002" "mac" "MEDIUM" "SELinux mode" "${selval:-disabled}" "enforcing" \
+        "setenforce 1" "SELinux non enforcing"
+    fi
+  else
+    warn "MAC-001" "mac" "HIGH" "AppArmor/SELinux" "Non détecté" "AppArmor ou SELinux" \
+      "apt-get install -y apparmor apparmor-profiles  OU  dnf install -y selinux-policy" \
+      "Aucun module MAC détecté"
+    warn "MAC-002" "mac" "MEDIUM" "MAC mode" "N/A" "enforce" \
+      "Installer et activer AppArmor ou SELinux" "Aucun profil de confinement"
+  fi
+
+  mod_score "mac" "$t" "$p"
+}
+
+# ── [8] NTP ── ANSSI-BP-028 : Synchronisation de l'horloge ───────────────────
+# La synchronisation est critique pour la cohérence des logs d'audit.
+# Des timestamps incorrects rendent impossible la corrélation d'événements lors
+# d'un incident (forensics) et peuvent invalider des certificats TLS.
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_ntp() {
+  local t=0 p=0
+  local ntp_svc="aucun"
+
+  t=$((t+1))
+  if systemctl is-active --quiet chronyd 2>/dev/null; then
+    ntp_svc="chronyd"
+  elif systemctl is-active --quiet systemd-timesyncd 2>/dev/null; then
+    ntp_svc="systemd-timesyncd"
+  elif systemctl is-active --quiet ntpd 2>/dev/null; then
+    ntp_svc="ntpd"
+  fi
+
+  if [ "$ntp_svc" != "aucun" ]; then
+    ok "NTP-001" "ntp" "Service NTP" "$ntp_svc (actif)" "Synchronisation de l'heure — intégrité des logs"; p=$((p+1))
+  else
+    warn "NTP-001" "ntp" "MEDIUM" "Service NTP" "Aucun actif" "chronyd ou systemd-timesyncd" \
+      "dnf install -y chrony && systemctl enable --now chronyd  OU  systemctl enable --now systemd-timesyncd" \
+      "Horloge non synchronisée — timestamps logs non fiables"
+  fi
+
+  t=$((t+1))
+  local ntp_servers=""
+  case "$ntp_svc" in
+    chronyd)           ntp_servers=$(grep -E "^(server|pool)" /etc/chrony.conf 2>/dev/null | head -2 | tr '\n' ' ') ;;
+    systemd-timesyncd) ntp_servers=$(grep "^NTP=" /etc/systemd/timesyncd.conf 2>/dev/null | cut -d= -f2) ;;
+    ntpd)              ntp_servers=$(grep "^server" /etc/ntp.conf 2>/dev/null | head -2 | tr '\n' ' ') ;;
+  esac
+  if [ -n "$ntp_servers" ]; then
+    ok "NTP-002" "ntp" "Serveurs NTP" "$ntp_servers" "Serveurs NTP configurés"; p=$((p+1))
+  else
+    warn "NTP-002" "ntp" "LOW" "Serveurs NTP" "Non configurés" "Au moins 1 serveur" \
+      "Ajouter 'server pool.ntp.org iburst' dans /etc/chrony.conf" \
+      "Aucun serveur NTP de référence"
+  fi
+
+  mod_score "ntp" "$t" "$p"
+}
+
+# ── [9] FIREWALL ── ANSSI-BP-028 : Filtrage réseau local ─────────────────────
+# Vérifie la présence et l'activation d'un pare-feu local.
+# Supporte : firewalld (RHEL/Fedora), ufw (Ubuntu/Debian), iptables (générique).
+#
+# Un pare-feu local reste indispensable même derrière un pare-feu périmétrique :
+# il protège contre les mouvements latéraux si une autre machine du même segment
+# réseau est compromise.
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_firewall() {
+  local t=0 p=0
+  t=$((t+1))
+  if systemctl is-active --quiet firewalld 2>/dev/null; then
+    ok "FW-001" "firewall" "Pare-feu" "firewalld (actif)" "Présence d'un pare-feu"; p=$((p+1))
+    t=$((t+1))
+    local zones; zones=$(firewall-cmd --get-active-zones 2>/dev/null | grep -v "interfaces" | tr '\n' ',')
+    ok "FW-002" "firewall" "Zones firewalld" "${zones:-aucune}" "Configuration par zones"; p=$((p+1))
+  elif systemctl is-active --quiet ufw 2>/dev/null; then
+    ok "FW-001" "firewall" "Pare-feu" "ufw (actif)" "Présence d'un pare-feu"; p=$((p+1))
+    t=$((t+1))
+    local ufw_out; ufw_out=$(ufw status 2>/dev/null)
+    if echo "$ufw_out" | grep -qi "^Status: active"; then
+      local ufw_rules; ufw_rules=$(echo "$ufw_out" | grep -cE "ALLOW|DENY|REJECT|LIMIT" || echo "0")
+      if [ "${ufw_rules:-0}" -gt 0 ]; then
+        ok "FW-002" "firewall" "Règles UFW" "$ufw_rules règle(s) active(s)" "Filtrage UFW configuré"; p=$((p+1))
+      else
+        warn "FW-002" "firewall" "MEDIUM" "UFW actif sans règles" "0 règles configurées" "Au moins 1 règle de filtrage" \
+          "ufw allow ssh && ufw default deny incoming && ufw enable" "UFW actif mais aucune règle — tout le trafic est permis"
+      fi
+    else
+      warn "FW-002" "firewall" "HIGH" "UFW inactif (daemon présent)" "$(echo "$ufw_out" | head -1)" "Status: active" \
+        "ufw enable" "Daemon UFW chargé mais pare-feu non appliqué"
+    fi
+  elif iptables -nL 2>/dev/null | grep -q "Chain"; then
+    ok "FW-001" "firewall" "Pare-feu" "iptables (actif)" "Présence d'un pare-feu"; p=$((p+1))
+  else
+    warn "FW-001" "firewall" "HIGH" "Pare-feu" "Aucun détecté" "firewalld ou ufw actif" \
+      "dnf install -y firewalld && systemctl enable --now firewalld" "Aucun pare-feu actif"
+  fi
+  mod_score "firewall" "$t" "$p"
+}
+
+# ── [10] SERVICES DANGEREUX ── ANSSI-BP-028 : Réduction de la surface d'attaque
+# Chaque service actif = un port ouvert = une surface d'attaque supplémentaire.
+# En production, seuls les services strictement nécessaires doivent tourner.
+#
+# Services contrôlés : Telnet (non chiffré), rsh/rlogin/rexec (auth faible),
+# TFTP (sans authentification), FTP (données en clair), finger (fuite d'infos),
+# Avahi/mDNS, CUPS (impression), Bluetooth, NFS, NIS (annuaire obsolète).
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_services() {
+  local t=0 p=0
+  dsvc() {
+    local id="$1" svc="$2" desc="$3"
+    t=$((t+1))
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+      warn "$id" "services" "HIGH" "Service $svc" "actif" "désactivé/absent" \
+        "systemctl stop $svc && systemctl disable $svc" "$desc"
+    else
+      ok "$id" "services" "Service $svc" "inactif/absent" "$desc"; p=$((p+1))
+    fi
+  }
+  dsvc "SVC-001" "telnet"       "Telnet — protocole non chiffré"
+  dsvc "SVC-002" "rsh"          "rsh — authentification faible"
+  dsvc "SVC-003" "rlogin"       "rlogin — authentification faible"
+  dsvc "SVC-004" "rexec"        "rexec — authentification faible"
+  dsvc "SVC-005" "tftp"         "TFTP — pas d'authentification"
+  dsvc "SVC-006" "vsftpd"       "FTP en clair (vsftpd)"
+  dsvc "SVC-007" "finger"       "finger — exposition d'infos utilisateurs"
+  dsvc "SVC-008" "avahi-daemon" "mDNS/Avahi — découverte réseau inutile en prod"
+  dsvc "SVC-009" "cups"         "CUPS — serveur d'impression inutile en serveur"
+  dsvc "SVC-010" "bluetooth"    "Bluetooth — surface d'attaque inutile en serveur"
+  dsvc "SVC-011" "nfs-server"   "NFS — partage réseau non chiffré"
+  dsvc "SVC-012" "ypbind"       "NIS/YP — annuaire réseau obsolète et non sécurisé"
+  mod_score "services" "$t" "$p"
+}
+
+# ── [11] PORTS RÉSEAU ── ANSSI-BP-028 : Inventaire des services exposés ───────
+# Liste tous les ports TCP en écoute (via ss ou netstat) et qualifie chacun :
+#   INFO/LOW  → PASS (port standard ou risque faible)
+#   MEDIUM+   → FAIL avec remédiation prête à l'emploi
+#
+# DANGER_PORTS liste les ports historiquement exploités :
+#   - Bases de données exposées réseau (3306 MySQL, 5432 PostgreSQL, 6379 Redis…)
+#   - Protocoles non chiffrés (21 FTP, 23 Telnet, 69 TFTP…)
+#   - Partage de fichiers Windows (139 NetBIOS, 445 SMB)
+# ─────────────────────────────────────────────────────────────────────────────
+
+DANGER_PORTS="21 23 69 110 135 137 138 139 143 389 445 512 513 514 1433 1521 3306 5432 5900 6379 27017"
+
+_port_info() {
+  case "$1" in
+    21)    echo "FTP — protocole non chiffré|HIGH|systemctl disable vsftpd" ;;
+    22)    echo "SSH — port standard|INFO|" ;;
+    23)    echo "Telnet — remplacé par SSH|CRITICAL|systemctl stop telnet && systemctl disable telnet" ;;
+    25)    echo "SMTP — vérifier exposition externe|MEDIUM|Restreindre aux interfaces internes" ;;
+    69)    echo "TFTP — pas d'authentification|HIGH|Désactiver TFTP" ;;
+    80)    echo "HTTP — trafic non chiffré|LOW|Configurer HTTPS" ;;
+    110)   echo "POP3 — auth en clair|HIGH|Utiliser POP3S (995)" ;;
+    135)   echo "RPC Endpoint Mapper|HIGH|Bloquer ou désactiver" ;;
+    137|138|139) echo "NetBIOS — vecteur propagation|HIGH|Désactiver si inutile" ;;
+    143)   echo "IMAP — auth en clair|HIGH|Utiliser IMAPS (993)" ;;
+    389)   echo "LDAP non chiffré|HIGH|Utiliser LDAPS (636)" ;;
+    443)   echo "HTTPS — chiffré|INFO|" ;;
+    445)   echo "SMB/CIFS — vecteur propagation|HIGH|Bloquer si inutile" ;;
+    512)   echo "rexec — auth faible|CRITICAL|Désactiver rexec" ;;
+    513)   echo "rlogin — auth faible|CRITICAL|Désactiver rlogin" ;;
+    514)   echo "rsh — auth faible|CRITICAL|Désactiver rsh" ;;
+    1433)  echo "MSSQL Server exposé|HIGH|Lier à 127.0.0.1" ;;
+    1521)  echo "Oracle DB exposé|HIGH|Restreindre accès réseau" ;;
+    3306)  echo "MySQL/MariaDB exposé|HIGH|bind-address=127.0.0.1 dans my.cnf" ;;
+    5432)  echo "PostgreSQL exposé|HIGH|listen_addresses='localhost'" ;;
+    5900)  echo "VNC non chiffré|HIGH|Utiliser un tunnel SSH" ;;
+    6379)  echo "Redis exposé sans auth|CRITICAL|bind 127.0.0.1 + requirepass" ;;
+    8080)  echo "HTTP alternatif|LOW|Vérifier HTTPS disponible" ;;
+    27017) echo "MongoDB exposé|HIGH|bindIp: 127.0.0.1 dans mongod.conf" ;;
+    *)     echo "Port $1 ouvert — vérifier si nécessaire|INFO|" ;;
+  esac
+}
+
+audit_network() {
+  local t=0 p=0
+  local raw_ports
+  raw_ports=$(ss -tlnH 2>/dev/null || netstat -tlnH 2>/dev/null || echo "")
+
+  if [ -z "$raw_ports" ]; then
+    ok "NET-000" "network" "Inventaire ports" "ss/netstat indisponible" "Ports TCP en écoute"
+    p=$((p+1)); mod_score "network" "$t" "$p"; return
+  fi
+
+  local seen_ports=""
+  while IFS= read -r line; do
+    local addr port_num proc
+    addr=$(echo "$line" | awk '{print $4}')
+    port_num=$(echo "$addr" | rev | cut -d: -f1 | rev)
+    proc=$(echo "$line" | awk '{print $NF}' | sed 's/users:(("\([^"]*\)".*/\1/')
+    ! echo "$port_num" | grep -qE '^[0-9]+$' && continue
+    echo "$seen_ports" | grep -qw "$port_num" && continue
+    seen_ports="$seen_ports $port_num"
+
+    local info desc sev rem is_dangerous extra
+    info=$(_port_info "$port_num")
+    desc=$(echo "$info" | cut -d'|' -f1)
+    sev=$(echo "$info" | cut -d'|' -f2)
+    rem=$(echo "$info" | cut -d'|' -f3)
+    is_dangerous="false"
+    for dp in $DANGER_PORTS; do [ "$port_num" = "$dp" ] && is_dangerous="true" && break; done
+    extra=""; [ "$is_dangerous" = "true" ] && extra=" dangerous=\"true\""
+    local id; id="NET-$(printf '%04d' "$port_num")"
+    t=$((t+1))
+    if [ "$sev" = "INFO" ] || [ "$sev" = "LOW" ]; then
+      _finding "$id" "network" "$sev" "PASS" "Port $port_num/tcp — $desc" "LISTEN" "LISTEN" "$rem" "Processus: ${proc:-inconnu}" "$extra"
+      p=$((p+1))
+    else
+      _finding "$id" "network" "$sev" "FAIL" "Port $port_num/tcp DANGEREUX — $desc" "LISTEN" "Fermé ou filtré" "$rem" "Processus: ${proc:-inconnu}" "$extra"
+    fi
+  done <<< "$raw_ports"
+
+  mod_score "network" "$t" "$p"
+}
+
+# ── [12] SYSTÈME DE FICHIERS ── ANSSI-BP-028 : Intégrité du système de fichiers
+# Vérifie les vecteurs d'élévation de privilèges au niveau du système de fichiers.
+#
+# Checks clés :
+#   Binaires setuid/setgid : un binaire setuid root s'exécute toujours avec les
+#     droits root, quel que soit l'utilisateur qui le lance. Chaque binaire
+#     superflu est un vecteur d'élévation (ex : CVE-2021-4034 polkit/pkexec)
+#   /tmp sticky bit : sans ce bit, un utilisateur peut supprimer les fichiers
+#     temporaires d'un autre utilisateur dans /tmp
+#   Répertoires world-writable : tout utilisateur peut y écrire — vecteur de
+#     plantation de scripts malveillants
+#   Fichiers orphelins : appartiennent à un UID/GID sans compte associé —
+#     peuvent être "récupérés" par un nouveau compte créé avec le même UID
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_filesystem() {
+  local t=0 p=0
+
+  # Fichiers setuid/setgid
+  t=$((t+1))
+  local suid_c; suid_c=$(find / -xdev \( -perm -4000 -o -perm -2000 \) -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${suid_c:-0}" -le 25 ]; then
+    ok "FS-001" "filesystem" "Fichiers setuid/setgid" "$suid_c fichiers" "Binaires avec élévation de privilèges"; p=$((p+1))
+  else
+    warn "FS-001" "filesystem" "MEDIUM" "Fichiers setuid/setgid" "$suid_c fichiers" "<= 25" \
+      "find / -xdev -perm -4000 -type f -exec ls -la {} \\;" "Nombre élevé de binaires setuid"
+  fi
+
+  # /tmp sticky bit
+  t=$((t+1))
+  if stat -c '%a' /tmp 2>/dev/null | grep -qE '^[0-9]{3}[1-9]$' || ls -lad /tmp 2>/dev/null | grep -q "^d.*.t"; then
+    ok "FS-002" "filesystem" "/tmp sticky bit" "Activé" "Protection suppression inter-utilisateurs"; p=$((p+1))
+  else
+    warn "FS-002" "filesystem" "MEDIUM" "/tmp sticky bit" "Absent" "Activé" "chmod +t /tmp" \
+      "Suppression de fichiers /tmp inter-utilisateurs possible"
+  fi
+
+  # Répertoires world-writable hors /tmp /var/tmp
+  t=$((t+1))
+  local ww; ww=$(find / -xdev -type d -perm -0002 ! -path "/tmp" ! -path "/var/tmp" \
+    ! -path "/proc/*" ! -path "/sys/*" 2>/dev/null | head -5 | tr '\n' ';')
+  if [ -z "$ww" ]; then
+    ok "FS-003" "filesystem" "Répertoires world-writable" "Aucun hors /tmp" "Permissions des répertoires"; p=$((p+1))
+  else
+    warn "FS-003" "filesystem" "MEDIUM" "Répertoires world-writable" "$ww" "Aucun hors /tmp /var/tmp" \
+      "chmod o-w sur chaque répertoire listé" "Répertoires accessibles en écriture par tous"
+  fi
+
+  # Fichiers sans propriétaire
+  t=$((t+1))
+  local noown; noown=$(find / -xdev \( -nouser -o -nogroup \) ! -path "/proc/*" 2>/dev/null | head -5 | tr '\n' ';')
+  if [ -z "$noown" ]; then
+    ok "FS-006" "filesystem" "Fichiers sans propriétaire" "Aucun" "Fichiers orphelins"; p=$((p+1))
+  else
+    warn "FS-006" "filesystem" "MEDIUM" "Fichiers sans propriétaire" "$noown" "Aucun" \
+      "Assigner un propriétaire valide ou supprimer ces fichiers" "Fichiers orphelins — risque d'élévation de privilèges"
+  fi
+
+  mod_score "filesystem" "$t" "$p"
+}
+
+# ── [13] PAQUETS ── ANSSI-BP-028 : Gestion des mises à jour et paquets inutiles
+# Tout paquet non patché avec une CVE publique est exploitable si exposé.
+# Les paquets de services réseau obsolètes (telnet, rsh, nis…) implémentent des
+# protocoles sans chiffrement ni authentification forte — remplacés depuis les
+# années 90 par SSH, mais encore présents sur certains systèmes.
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_packages() {
+  local t=0 p=0
+  t=$((t+1))
+  local updates="?"
+  if command -v dnf &>/dev/null; then
+    updates=$(dnf check-update -q 2>/dev/null | grep -cE "^[a-zA-Z]" || echo "0")
+  elif command -v apt-get &>/dev/null; then
+    apt-get -qq update 2>/dev/null; updates=$(apt-get -s upgrade 2>/dev/null | grep -c "^Inst" || echo "0")
+  elif command -v yum &>/dev/null; then
+    updates=$(yum check-update -q 2>/dev/null | grep -cE "^[a-zA-Z]" || echo "0")
+  fi
+
+  if [ "$updates" = "0" ]; then
+    ok "PKG-001" "packages" "Mises à jour" "Système à jour" "État des paquets"; p=$((p+1))
+  elif [ "$updates" = "?" ]; then
+    ok "PKG-001" "packages" "Mises à jour" "Gestionnaire non détecté" "État des paquets"; p=$((p+1))
+  else
+    warn "PKG-001" "packages" "MEDIUM" "Mises à jour disponibles" "$updates paquet(s)" "0 (à jour)" \
+      "dnf update -y  OU  apt-get upgrade -y" "Paquets non à jour — exposition aux CVE"
+  fi
+
+  for pkg in telnet rsh-client rlogin xinetd nis; do
+    t=$((t+1))
+    if rpm -q "$pkg" &>/dev/null || dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+      warn "PKG-$(echo "$pkg" | tr '[:lower:]' '[:upper:]')" "packages" "MEDIUM" \
+        "Paquet $pkg installé" "installé" "supprimé" \
+        "dnf remove -y $pkg  OU  apt-get remove -y $pkg" "Paquet inutile en production"
+    else
+      ok "PKG-$(echo "$pkg" | tr '[:lower:]' '[:upper:]')" "packages" "Paquet $pkg" \
+        "non installé" "Absence de paquet inutile"; p=$((p+1))
+    fi
+  done
+
+  mod_score "packages" "$t" "$p"
+}
+
+# ── [14] JOURNALISATION ── ANSSI-BP-028 : Traçabilité et détection ────────────
+# Sans journalisation, il est impossible de détecter une intrusion en temps réel,
+# de comprendre ce qui s'est passé après un incident, ou de prouver la conformité.
+#
+# Checks clés :
+#   rsyslog    : collecte et centralise les logs système (SSH, sudo, auth…)
+#   auditd     : framework d'audit Linux — trace les appels système (open, execve,
+#                chmod…) avec l'UID de l'auteur, le processus et le timestamp exact
+#   Journald Storage=persistent : sans cette option, les logs sont volatils
+#                et détruits à chaque redémarrage
+#   Règles auditd /etc/passwd + /etc/shadow : toute modification de la base
+#                de comptes est enregistrée — essentiel pour la détection d'escalade
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_logging() {
+  local t=0 p=0
+
+  t=$((t+1))
+  if systemctl is-active --quiet rsyslog 2>/dev/null || systemctl is-active --quiet syslog 2>/dev/null; then
+    ok "LOG-001" "logging" "Syslog" "actif (rsyslog)" "Journalisation système"; p=$((p+1))
+  else
+    warn "LOG-001" "logging" "HIGH" "Syslog" "inactif" "rsyslog ou syslog actif" \
+      "dnf install -y rsyslog && systemctl enable --now rsyslog" "Journalisation système absente"
+  fi
+
+  t=$((t+1))
+  if systemctl is-active --quiet auditd 2>/dev/null; then
+    ok "LOG-002" "logging" "Auditd" "actif" "Framework d'audit Linux"; p=$((p+1))
+  else
+    warn "LOG-002" "logging" "MEDIUM" "Auditd" "inactif" "actif" \
+      "dnf install -y audit && systemctl enable --now auditd" "Audit syscall désactivé"
+  fi
+
+  # Persistance journald
+  t=$((t+1))
+  local storage; storage=$(grep -E "^Storage=" /etc/systemd/journald.conf 2>/dev/null | cut -d= -f2)
+  if [ "${storage:-}" = "persistent" ]; then
+    ok "LOG-003" "logging" "Journald persistant" "persistent" "Logs conservés après redémarrage"; p=$((p+1))
+  else
+    warn "LOG-003" "logging" "LOW" "Journald Storage" "${storage:-auto}" "persistent" \
+      "sed -i 's/^#*Storage=.*/Storage=persistent/' /etc/systemd/journald.conf && systemctl restart systemd-journald" \
+      "Logs perdus au redémarrage"
+  fi
+
+  # Règles auditd sur /etc/passwd et /etc/shadow
+  t=$((t+1))
+  if auditctl -l 2>/dev/null | grep -qE "/etc/passwd|/etc/shadow"; then
+    ok "LOG-004" "logging" "Règles auditd" "Surveillance /etc/passwd+shadow" "Traçabilité des modifications de comptes"; p=$((p+1))
+  else
+    warn "LOG-004" "logging" "MEDIUM" "Règles auditd" "Pas de surveillance /etc/passwd ou /etc/shadow" "Règles configurées" \
+      "auditctl -w /etc/passwd -p wa -k identity && auditctl -w /etc/shadow -p wa -k identity" \
+      "Modifications des comptes non tracées"
+  fi
+
+  mod_score "logging" "$t" "$p"
+}
+
+# ── [15] PROXMOX VE ── Sécurité de l'hyperviseur (pveproxy, API, cluster, LXC/VM)
+# Un host PVE compromis donne accès à TOUTES les VM/CT qu'il héberge : ces checks
+# ciblent les surfaces d'attaque propres à l'hyperviseur, en plus du durcissement
+# Linux générique déjà couvert par les 14 modules précédents.
+#
+# Checks clés :
+#   pveproxy TLS      : ciphers/versions faibles exposent l'interface web d'admin
+#   Pare-feu Proxmox  : pve-firewall au niveau datacenter, en plus du pare-feu local
+#   Tokens API        : sans expiration ou en privsep=0 = accès permanent équivalent au compte
+#   2FA               : absence de MFA sur les comptes admin PVE
+#   LXC privilégiés   : un conteneur privilégié compromis peut s'évader vers le host
+#   Permissions /etc/pve : cette pseudo-FS partagée du cluster ne doit pas être ouverte
+#   Corosync          : lien de cluster non authentifié/chiffré = risque de désynchronisation/MITM
+#   Mises à jour PVE  : dépôt enterprise sans abonnement valide = pas de patches de sécurité
+# ─────────────────────────────────────────────────────────────────────────────
+
+audit_pve() {
+  local t=0 p=0
+
+  # Guard : module pertinent uniquement sur un host Proxmox VE
+  t=$((t+1))
+  if ! command -v pveversion &>/dev/null; then
+    ok "PVE-000" "pve" "Proxmox VE" "Non détecté" "Host non-PVE — module ignoré"; p=$((p+1))
+    mod_score "pve" "$t" "$p"; return
+  fi
+  ok "PVE-000" "pve" "Proxmox VE" "${PVE_VERSION:-détecté}" "Version de l'hyperviseur"; p=$((p+1))
+
+  # pveproxy — version TLS minimale (par défaut PVE autorise TLSv1.2 ; vérifier qu'aucun
+  # affaiblissement explicite vers SSLv3/TLSv1/TLSv1.1 n'a été fait dans le fichier de conf)
+  t=$((t+1))
+  local pveproxy_conf="/etc/default/pveproxy"
+  if [ -f "$pveproxy_conf" ] && grep -qE "ssl-protocols.*(SSLv3|TLSv1\b|TLSv1\.1)" "$pveproxy_conf" 2>/dev/null; then
+    warn "PVE-001" "pve" "HIGH" "pveproxy TLS" "Protocole faible autorisé" "TLSv1.2 minimum" \
+      "Retirer SSLv3/TLSv1/TLSv1.1 de 'ssl-protocols' dans /etc/default/pveproxy && systemctl restart pveproxy" \
+      "Interface web d'administration accessible avec un protocole TLS obsolète"
+  else
+    ok "PVE-001" "pve" "pveproxy TLS" "Pas d'affaiblissement explicite" "TLSv1.2 minimum (défaut PVE)"; p=$((p+1))
+  fi
+
+  # Pare-feu Proxmox (datacenter/node) — en complément du pare-feu local générique
+  t=$((t+1))
+  local pvefw_status; pvefw_status=$(pve-firewall status 2>/dev/null | head -1)
+  if echo "$pvefw_status" | grep -qi "^Status: enabled"; then
+    ok "PVE-002" "pve" "Pare-feu Proxmox" "enabled" "Filtrage réseau au niveau datacenter/node"; p=$((p+1))
+  else
+    warn "PVE-002" "pve" "HIGH" "Pare-feu Proxmox" "${pvefw_status:-disabled}" "enabled" \
+      "pvesh set /cluster/firewall/options --enable 1 && systemctl restart pve-firewall" \
+      "Pare-feu Proxmox (datacenter) désactivé — seul le pare-feu local générique protège les VM"
+  fi
+
+  # Tokens API — expiration et niveau de privilège
+  t=$((t+1))
+  if command -v pveum &>/dev/null; then
+    local risky_tokens
+    risky_tokens=$(pveum user token list root@pam --output-format json 2>/dev/null \
+      | grep -oE '"tokenid":"[^"]*"|"expire":0|"privsep":0' | tr '\n' ' ')
+    if echo "$risky_tokens" | grep -q "expire.:0" && echo "$risky_tokens" | grep -q "privsep.:0"; then
+      warn "PVE-003" "pve" "MEDIUM" "Tokens API root@pam" "Token(s) sans expiration et privsep=0" \
+        "Expiration définie ou privsep=1" \
+        "pveum user token modify root@pam <tokenid> --expire <timestamp> --privsep 1" \
+        "Token API équivalent à un accès root permanent en cas de fuite"
+    else
+      ok "PVE-003" "pve" "Tokens API root@pam" "Pas de combinaison à risque détectée" "Expiration ou privsep configuré"; p=$((p+1))
+    fi
+  else
+    ok "PVE-003" "pve" "Tokens API" "pveum indisponible" "Vérification manuelle recommandée"; p=$((p+1))
+  fi
+
+  # 2FA sur les comptes PVE
+  t=$((t+1))
+  if command -v pveum &>/dev/null; then
+    if pveum user list 2>/dev/null | grep -q "root@pam" && \
+       ! pveum user tfa-type root@pam 2>/dev/null | grep -qE "totp|u2f|webauthn"; then
+      warn "PVE-004" "pve" "HIGH" "2FA root@pam" "Non configurée" "TOTP ou clé de sécurité (WebAuthn)" \
+        "pveum user tfa add root@pam --type totp" \
+        "Compte administrateur PVE sans second facteur — accès complet en cas de fuite du mot de passe"
+    else
+      ok "PVE-004" "pve" "2FA root@pam" "Configurée ou non applicable" "Second facteur sur le compte admin"; p=$((p+1))
+    fi
+  else
+    ok "PVE-004" "pve" "2FA" "pveum indisponible" "Vérification manuelle recommandée"; p=$((p+1))
+  fi
+
+  # Conteneurs LXC privilégiés
+  t=$((t+1))
+  local priv_ct; priv_ct=$(grep -L "^unprivileged: 1" /etc/pve/lxc/*.conf 2>/dev/null | tr '\n' ';')
+  if [ -z "$priv_ct" ]; then
+    ok "PVE-005" "pve" "Conteneurs LXC" "Tous unprivileged" "Isolation renforcée hôte/conteneur"; p=$((p+1))
+  else
+    warn "PVE-005" "pve" "HIGH" "Conteneurs LXC privilégiés" "$priv_ct" "unprivileged: 1 pour chaque CT" \
+      "Convertir en unprivileged (pct set <id> --unprivileged 1, nécessite recréation) sauf besoin explicite documenté" \
+      "Un CT privilégié compromis peut s'évader vers le host PVE"
+  fi
+
+  # Permissions /etc/pve (pseudo-FS cluster, doit rester restreinte)
+  t=$((t+1))
+  local pve_perm; pve_perm=$(fperm "/etc/pve")
+  if [ "$pve_perm" = "755" ] || [ "$pve_perm" = "750" ]; then
+    ok "PVE-006" "pve" "Permissions /etc/pve" "$pve_perm" "Accès restreint à la configuration cluster"; p=$((p+1))
+  else
+    warn "PVE-006" "pve" "MEDIUM" "Permissions /etc/pve" "${pve_perm:-inconnu}" "755 ou 750" \
+      "Vérifier manuellement la configuration pmxcfs — ne pas chmod directement (pseudo-FS)" \
+      "Permissions inhabituelles sur la configuration partagée du cluster"
+  fi
+
+  # Corosync — lien de cluster (si le host est membre d'un cluster)
+  t=$((t+1))
+  if command -v pvecm &>/dev/null && pvecm status 2>/dev/null | grep -qi "cluster information"; then
+    if grep -q "crypto_cipher" /etc/pve/corosync.conf 2>/dev/null; then
+      ok "PVE-007" "pve" "Corosync" "Chiffrement configuré" "Lien de cluster protégé"; p=$((p+1))
+    else
+      warn "PVE-007" "pve" "HIGH" "Corosync" "Pas de crypto_cipher explicite" "crypto_cipher configuré (ex: aes256)" \
+        "Ajouter 'crypto_cipher: aes256' dans la section totem de /etc/pve/corosync.conf" \
+        "Lien de cluster corosync non chiffré — risque de désynchronisation ou d'interception"
+    fi
+  else
+    ok "PVE-007" "pve" "Corosync" "Host non clusterisé" "Non applicable (node isolé)"; p=$((p+1))
+  fi
+
+  # Dépôt de mises à jour — enterprise sans abonnement valide = pas de patches
+  t=$((t+1))
+  if [ -f /etc/apt/sources.list.d/pve-enterprise.list ] && \
+     grep -q "^deb" /etc/apt/sources.list.d/pve-enterprise.list 2>/dev/null && \
+     ! [ -f /etc/apt/sources.list.d/pve-no-subscription.list ]; then
+    warn "PVE-008" "pve" "MEDIUM" "Dépôt de mises à jour PVE" "enterprise actif, no-subscription absent" \
+      "no-subscription actif ou abonnement enterprise valide" \
+      "Activer le dépôt pve-no-subscription si pas d'abonnement : voir https://pve.proxmox.com/wiki/Package_Repositories" \
+      "Dépôt enterprise sans abonnement valide = système sans mises à jour de sécurité"
+  else
+    ok "PVE-008" "pve" "Dépôt de mises à jour PVE" "Accessible" "Un dépôt de mises à jour est configuré"; p=$((p+1))
+  fi
+
+  mod_score "pve" "$t" "$p"
+}
+
+# ── SCORE ─────────────────────────────────────────────────────────────────────
+# Formule de déduction : CRITICAL×15 + HIGH×8 + MEDIUM×3 + LOW×1
+# Un seul finding CRITICAL suffit à descendre sous 85/100.
+# Barème : A (≥90) · B (≥75) · C (≥60) · D (≥40) · F (<40)
+# Le score est plafonné entre 0 et 100 (jamais négatif).
+# ─────────────────────────────────────────────────────────────────────────────
+
+compute_score() {
+  local ded=$(( CRIT*15 + HIGH_C*8 + MED*3 + LOW*1 ))
+  SCORE=$(( 100 - ded ))
+  [ "$SCORE" -lt 0 ] && SCORE=0
+  [ "$SCORE" -gt 100 ] && SCORE=100
+  if   [ "$SCORE" -ge 90 ]; then GRADE="A"
+  elif [ "$SCORE" -ge 75 ]; then GRADE="B"
+  elif [ "$SCORE" -ge 60 ]; then GRADE="C"
+  elif [ "$SCORE" -ge 40 ]; then GRADE="D"
+  else GRADE="F"; fi
+}
+
+# ── XML ───────────────────────────────────────────────────────────────────────
+# Génère le rapport XML final importable dans Petrix via /api/v1/hardening/import-xml.
+# Structure : <PetrixAuditReport> → <Metadata> + <Scores> + <Findings>
+# ─────────────────────────────────────────────────────────────────────────────
+
+generate_xml() {
+  cat > "$OUTFILE" <<XMLEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<PetrixAuditReport Referential="ANSSI-BP-028 + PVE-Hardening-v1" AgentVersion="1.0.0">
+  <Metadata>
+    <Hostname>$(xml_esc "$HOSTNAME_VAL")</Hostname>
+    <OS>$(xml_esc "$OS_NAME")</OS>
+    <OSType>proxmox_ve</OSType>
+    <Architecture>$(xml_esc "$ARCH")</Architecture>
+    <GenerationDate>$DATE</GenerationDate>
+    <PVEVersion>$(xml_esc "$PVE_VERSION")</PVEVersion>
+  </Metadata>
+  <Scores>
+    <GlobalScore>$SCORE</GlobalScore>
+    <GlobalGrade>$GRADE</GlobalGrade>
+    <TotalChecks>$TOTAL</TotalChecks>
+    <PassedChecks>$PASSED</PassedChecks>
+    <CriticalCount>$CRIT</CriticalCount>
+    <HighCount>$HIGH_C</HighCount>
+    <MediumCount>$MED</MediumCount>
+    <LowCount>$LOW</LowCount>
+    <ModuleScores>
+$(printf '%b' "$MODULE_SCORES")
+    </ModuleScores>
+  </Scores>
+  <Findings>$FINDINGS_XML
+  </Findings>
+</PetrixAuditReport>
+XMLEOF
+}
+
+# ── UPLOAD ────────────────────────────────────────────────────────────────────
+# Si $PETRIX_URL est fourni (argument $1), envoie le rapport XML à la plateforme
+# via multipart/form-data sur POST /api/v1/hardening/import-xml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+upload_xml() {
+  [ -z "$PETRIX_URL" ] && return
+  echo ""
+  printf "→ Upload vers %s ... " "$PETRIX_URL"
+  if curl -sf -X POST "${PETRIX_URL}/api/v1/hardening/import-xml" \
+       -H "Accept: application/json" \
+       -F "file=@${OUTFILE}" > /dev/null 2>&1; then
+    echo "OK"
+  else
+    echo "ERREUR (vérifier URL et connectivité)"
+  fi
+}
+
+# ── MAIN ──────────────────────────────────────────────────────────────────────
+
+main() {
+  echo "════════════════════════════════════════════════════════════════"
+  echo "  Petrix Audit Agent 1.0 — Proxmox VE — ANSSI-BP-028 + PVE Hardening"
+  echo "  Hôte : $HOSTNAME_VAL"
+  echo "  OS   : $OS_NAME ($ARCH) — ${PVE_VERSION:-Proxmox VE non détecté}"
+  echo "════════════════════════════════════════════════════════════════"
+
+  [ "$(id -u)" -ne 0 ] && { echo "ERREUR : Exécuter en root (sudo bash $0)"; exit 1; }
+
+  echo "[ 1/15] SSH configuration..."              && audit_ssh
+  echo "[ 2/15] Paramètres noyau..."               && audit_kernel
+  echo "[ 3/15] Comptes utilisateurs..."            && audit_users
+  echo "[ 4/15] Politique PAM..."                   && audit_pam
+  echo "[ 5/15] Montage des partitions..."          && audit_mounts
+  echo "[ 6/15] Permissions fichiers sensibles..."  && audit_perms
+  echo "[ 7/15] Contrôle d'accès MAC..."            && audit_mac
+  echo "[ 8/15] NTP / Synchronisation horloge..."  && audit_ntp
+  echo "[ 9/15] Pare-feu..."                        && audit_firewall
+  echo "[10/15] Services dangereux..."              && audit_services
+  echo "[11/15] Ports réseau..."                    && audit_network
+  echo "[12/15] Système de fichiers..."             && audit_filesystem
+  echo "[13/15] Paquets..."                         && audit_packages
+  echo "[14/15] Journalisation..."                  && audit_logging
+  echo "[15/15] Proxmox VE (pveproxy/API/cluster/LXC)..." && audit_pve
+
+  compute_score
+  generate_xml
+  # Redonner la propriété du rapport à l'utilisateur réel (pas root via sudo).
+  _REAL_USER="${SUDO_USER:-$(stat -c '%U' "$(pwd)" 2>/dev/null)}"
+  [ -n "$_REAL_USER" ] && [ "$_REAL_USER" != "root" ] && chown "$_REAL_USER" "$OUTFILE" 2>/dev/null || true
+
+  local failed=$((TOTAL - PASSED))
+  echo ""
+  echo "════════════════════════════════════════════════════════════════"
+  printf "  Score : %d/100  Grade : %s\n" "$SCORE" "$GRADE"
+  printf "  Checks : %d total | %d OK | %d échecs\n" "$TOTAL" "$PASSED" "$failed"
+  printf "  CRITICAL:%d  HIGH:%d  MEDIUM:%d  LOW:%d\n" "$CRIT" "$HIGH_C" "$MED" "$LOW"
+  echo "  Rapport : $OUTFILE"
+  echo "════════════════════════════════════════════════════════════════"
+
+  upload_xml
+}
+
+main

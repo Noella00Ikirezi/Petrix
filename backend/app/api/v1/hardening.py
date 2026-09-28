@@ -10,19 +10,22 @@ import datetime
 import json
 import os
 import re
+import secrets
 import xml.etree.ElementTree as ET
 from defusedxml.ElementTree import fromstring as _safe_xml_fromstring
 from typing import Optional
 from urllib.request import Request as UrlRequest, urlopen
 from urllib.error import URLError
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user, require_permission
+from app.config import settings
 from app.core.permissions import Permission, UserRole
+from app.core.security import get_password_hash
 from app.infrastructure.database import get_db
 from app.infrastructure.database.models import User, Vulnerability, VulnStatus, Severity
 from app.infrastructure.database.hardening_models import (
@@ -105,6 +108,7 @@ class TargetResponse(BaseModel):
     Attributs notables :
         latest_session: Résumé de la dernière session exécutée sur cette cible (ou None).
         session_count: Nombre total de sessions d'audit enregistrées pour cette cible.
+        is_online: Dérivé de ``last_heartbeat_at`` (jamais persisté) — voir ``_is_online``.
     """
 
     id: str
@@ -118,9 +122,27 @@ class TargetResponse(BaseModel):
     created_at: str
     latest_session: Optional[LatestSessionSummary] = None
     session_count: int = 0
+    mode: str = "on_demand"
+    monitor_interval_seconds: int = 300
+    is_online: bool = False
+    last_heartbeat_at: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class AgentEnrollRequest(BaseModel):
+    """Corps de la requête POST /targets/{id}/agent-enroll : activation de la surveillance continue."""
+
+    monitor_interval_seconds: int = 300
+
+
+class AgentEnrollResponse(BaseModel):
+    """Réponse d'enrôlement : le token en clair (affiché une seule fois) et la commande d'installation."""
+
+    target_id: str
+    token: str
+    install_command: str
 
 
 class SessionCreate(BaseModel):
@@ -203,6 +225,20 @@ class AiChatResponse(BaseModel):
 # Fonctions de conversion ORM → schéma
 # =============================================================================
 
+def _is_online(target: HardeningTarget) -> bool:
+    """Dérive l'état en ligne d'une cible depuis ``last_heartbeat_at``, jamais depuis un booléen stocké.
+
+    Une cible est considérée en ligne si un heartbeat a été reçu il y a moins de
+    2x son intervalle de surveillance — tolère un cycle manqué avant de basculer
+    hors ligne, sans rester figée "online" après un redémarrage backend ou un
+    crash brutal de l'agent (qui ne fermerait pas proprement la connexion WS).
+    """
+    if not target.last_heartbeat_at:
+        return False
+    threshold = datetime.timedelta(seconds=2 * (target.monitor_interval_seconds or 300))
+    return (datetime.datetime.utcnow() - target.last_heartbeat_at) < threshold
+
+
 def _target_to_response(t: HardeningTarget, db: Optional[Session] = None) -> TargetResponse:
     """Convertit un ORM HardeningTarget en TargetResponse avec résumé de la dernière session.
 
@@ -252,6 +288,10 @@ def _target_to_response(t: HardeningTarget, db: Optional[Session] = None) -> Tar
         created_at=t.created_at.isoformat() if t.created_at else "",
         latest_session=latest_session,
         session_count=session_count,
+        mode=t.mode,
+        monitor_interval_seconds=t.monitor_interval_seconds,
+        is_online=_is_online(t),
+        last_heartbeat_at=t.last_heartbeat_at.isoformat() if t.last_heartbeat_at else None,
     )
 
 
@@ -347,6 +387,52 @@ def delete_target(
     _check_access(t, current_user)
     db.delete(t)
     db.commit()
+
+
+# Mappe le os_type stocké (celui du rapport XML importé) vers la clé d'agent-script à
+# télécharger pour la surveillance continue de cette cible (voir _AGENT_FILES).
+_OS_TYPE_TO_AGENT_KEY = {"linux": "linux", "proxmox_ve": "proxmox"}
+
+
+@router.post("/targets/{target_id}/agent-enroll", response_model=AgentEnrollResponse)
+def enroll_agent(
+    target_id: str,
+    body: AgentEnrollRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SCAN_CREATE)),
+):
+    """Active la surveillance continue d'une cible et génère un nouveau token d'agent.
+
+    Ne stocke jamais le token en clair : seul son hash bcrypt (``agent_token_hash``)
+    est persisté, via le même mécanisme que les mots de passe utilisateurs. Le token
+    retourné ici ne sera plus jamais récupérable — un ré-enrôlement en génère un nouveau
+    et invalide implicitement l'ancien (l'agent déjà installé devra être réinstallé).
+    """
+    t = db.query(HardeningTarget).filter(HardeningTarget.id == target_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Target not found")
+    _check_access(t, current_user)
+
+    if body.monitor_interval_seconds < 60:
+        raise HTTPException(status_code=400, detail="Intervalle minimum : 60 secondes")
+
+    token = secrets.token_urlsafe(32)
+    t.mode = "continuous"
+    t.monitor_interval_seconds = body.monitor_interval_seconds
+    t.agent_token_hash = get_password_hash(token)
+    db.commit()
+
+    agent_key = _OS_TYPE_TO_AGENT_KEY.get(t.os_type, "linux")
+    base = str(request.base_url).rstrip("/")
+    install_url = (
+        f"{base}{settings.api_v1_prefix}/hardening/agent-script/install"
+        f"?target_id={t.id}&token={token}&os_type={agent_key}"
+        f"&interval={body.monitor_interval_seconds}"
+    )
+    install_command = f"curl -fsSL '{install_url}' | sudo bash"
+
+    return AgentEnrollResponse(target_id=str(t.id), token=token, install_command=install_command)
 
 
 # =============================================================================
@@ -696,25 +782,13 @@ def _txt(el: Optional[ET.Element], tag: str, default: str = "") -> str:
     return (child.text or default).strip() if child is not None else default
 
 
-@router.post("/import-xml", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
-async def import_xml_report(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(Permission.SCAN_CREATE)),
-):
-    """Importe un rapport XML généré par l'agent local ``petrix_audit_local.py``.
+async def _ingest_xml_report(content: bytes, current_user: User, db: Session) -> HardeningSession:
+    """Parse un rapport XML Petrix et persiste cible/session/findings/vulnérabilités/analyse IA.
 
-    Crée automatiquement la cible (upsert par hostname + os_type) et la session
-    dans la base de données, puis lance l'analyse IA Mistral en arrière-plan.
-    Taille maximale acceptée : 5 Mo. Format attendu : ``<PetrixAuditReport>``.
+    Logique partagée entre l'upload HTTP (``POST /import-xml``) et le flux WebSocket
+    agent temps réel (``hardening_ws.py``) — extraite pour que les deux chemins d'ingestion
+    restent strictement identiques (même upsert de cible, même sync vulnérabilités, même IA).
     """
-    if not file.filename or not file.filename.endswith(".xml"):
-        raise HTTPException(status_code=400, detail="Fichier XML requis (.xml)")
-
-    content = await file.read()
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 5 Mo)")
-
     try:
         root = _safe_xml_fromstring(content.decode("utf-8", errors="replace"))
     except ET.ParseError as exc:
@@ -863,6 +937,29 @@ async def import_xml_report(
         db.commit()
         db.refresh(session)
 
+    return session
+
+
+@router.post("/import-xml", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+async def import_xml_report(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SCAN_CREATE)),
+):
+    """Importe un rapport XML généré par l'agent local ``petrix_audit_local.py``.
+
+    Crée automatiquement la cible (upsert par hostname + os_type) et la session
+    dans la base de données, puis lance l'analyse IA Mistral en arrière-plan.
+    Taille maximale acceptée : 5 Mo. Format attendu : ``<PetrixAuditReport>``.
+    """
+    if not file.filename or not file.filename.endswith(".xml"):
+        raise HTTPException(status_code=400, detail="Fichier XML requis (.xml)")
+
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 5 Mo)")
+
+    session = await _ingest_xml_report(content, current_user, db)
     return _session_to_response(session)
 
 
@@ -874,6 +971,7 @@ _AGENT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "hardening", "a
 
 _AGENT_FILES = {
     "linux":   ("linux.sh",    "application/x-sh", "petrix_agent_linux.sh"),
+    "proxmox": ("proxmox.sh",  "application/x-sh", "petrix_agent_proxmox.sh"),
     "macos":   ("macos.sh",    "application/x-sh", "petrix_agent_macos.sh"),
     "windows": ("windows.ps1", None,                "petrix_agent_windows.bat"),
 }
@@ -889,6 +987,93 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$f=$env:_pf;$a=[IO.F
 endlocal & exit /b %ERRORLEVEL%
 #--PETRIX_PS1_START--
 """
+
+
+@router.get("/agent-script/daemon")
+def download_agent_daemon():
+    """Télécharge l'agent démon Python (surveillance continue). Endpoint public.
+
+    Comme les autres scripts d'agent, aucune authentification n'est requise pour le
+    téléchargement : le fichier ne contient aucun secret, seul le token fourni au
+    lancement (voir ``/agent-script/install``) authentifie la connexion WebSocket.
+    """
+    path = os.path.normpath(os.path.join(_AGENT_DIR, "petrix_daemon.py"))
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Agent démon introuvable sur le serveur")
+    return FileResponse(path, media_type="text/x-python", filename="petrix_daemon.py")
+
+
+@router.get("/agent-script/install")
+def download_install_script(
+    request: Request,
+    target_id: str,
+    token: str,
+    os_type: str = "linux",
+    interval: int = 300,
+):
+    """Génère le script d'installation one-liner de la surveillance continue. Endpoint public.
+
+    Retourné par ``POST /targets/{id}/agent-enroll`` sous forme de commande
+    ``curl ... | sudo bash`` prête à copier-coller sur la machine à surveiller.
+    Télécharge l'agent démon + le script d'audit adapté, puis installe un service
+    systemd (``petrix-agent``) qui maintient la connexion WebSocket vers ce serveur.
+    N'effectue aucune action lui-même : la cible exécute ce script de son côté.
+    """
+    agent_key = os_type.lower() if os_type.lower() in _AGENT_FILES else "linux"
+    audit_filename = _AGENT_FILES[agent_key][0]
+    base = str(request.base_url).rstrip("/")
+
+    script = f"""#!/usr/bin/env bash
+# Installation de l'agent Petrix (surveillance continue) — généré pour la cible {target_id}
+set -eu
+if [ "$(id -u)" -ne 0 ]; then echo "ERREUR : exécuter avec sudo"; exit 1; fi
+command -v python3 >/dev/null 2>&1 || {{ echo "ERREUR : python3 requis"; exit 1; }}
+
+INSTALL_DIR=/opt/petrix-agent
+mkdir -p "$INSTALL_DIR"
+
+echo "→ Téléchargement de l'agent démon..."
+curl -fsSL "{base}{settings.api_v1_prefix}/hardening/agent-script/daemon" -o "$INSTALL_DIR/petrix_daemon.py"
+
+echo "→ Téléchargement du script d'audit ({agent_key})..."
+curl -fsSL "{base}{settings.api_v1_prefix}/hardening/agent-script/{agent_key}" -o "$INSTALL_DIR/{audit_filename}"
+chmod +x "$INSTALL_DIR/{audit_filename}"
+
+echo "→ Installation de la dépendance websockets..."
+python3 -m pip install --quiet websockets 2>/dev/null || python3 -m pip install --quiet --break-system-packages websockets
+
+cat > /etc/petrix-agent.env <<'ENVEOF'
+PETRIX_URL={base}
+TARGET_ID={target_id}
+AGENT_TOKEN={token}
+AUDIT_SCRIPT=/opt/petrix-agent/{audit_filename}
+INTERVAL={interval}
+ENVEOF
+chmod 600 /etc/petrix-agent.env
+
+cat > /etc/systemd/system/petrix-agent.service <<'UNITEOF'
+[Unit]
+Description=Petrix Agent — surveillance temps reel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/petrix-agent.env
+ExecStart=/usr/bin/python3 /opt/petrix-agent/petrix_daemon.py
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+systemctl daemon-reload
+systemctl enable --now petrix-agent.service
+echo "✓ Agent Petrix installé et démarré — voir : systemctl status petrix-agent"
+"""
+    return PlainTextResponse(script, media_type="text/x-shellscript")
 
 
 @router.get("/agent-script/{os_type}")
@@ -1060,6 +1245,19 @@ def list_available_modules(current_user: User = Depends(get_current_user)):
                 {"id": "packages",   "name": "Gestion des paquets",  "description": "[ANSSI R58-R61] Paquets inutiles, dépôts de confiance, mises à jour", "anssi_refs": ["R58", "R59", "R61"]},
                 {"id": "pam",        "name": "Authentification PAM", "description": "[ANSSI R68-R70] PAM, hachage des mots de passe, bases distantes", "anssi_refs": ["R68", "R69", "R70"]},
                 {"id": "logging",    "name": "Journalisation",       "description": "[ANSSI R71-R74] syslog, auditd, service mail, intégrité fichiers", "anssi_refs": ["R71", "R72", "R73", "R74"]},
+            ],
+            "proxmox_ve": [
+                {"id": "ssh",        "name": "SSH Configuration",    "description": "[ANSSI R4-R5] Configuration du serveur SSH", "anssi_refs": ["R4", "R5"]},
+                {"id": "users",      "name": "Comptes utilisateurs", "description": "[ANSSI R30-R44] Comptes, sudo, politique de mots de passe", "anssi_refs": ["R30", "R31", "R32", "R33", "R34", "R36", "R37"]},
+                {"id": "kernel",     "name": "Paramètres noyau",     "description": "[ANSSI R8-R13] Paramètres sysctl de sécurité (ASLR, SYN cookies…)", "anssi_refs": ["R8", "R9", "R10", "R11", "R12", "R13"]},
+                {"id": "firewall",   "name": "Pare-feu",             "description": "[ANSSI R67] Pare-feu local (nftables/iptables)", "anssi_refs": ["R67"]},
+                {"id": "services",   "name": "Services",             "description": "[ANSSI R62-R66] Détection des services dangereux ou obsolètes", "anssi_refs": ["R62", "R63", "R66"]},
+                {"id": "filesystem", "name": "Système de fichiers",  "description": "[ANSSI R28-R57] Partitions, setuid/setgid, sticky bit, permissions", "anssi_refs": ["R28", "R29", "R49", "R52", "R53", "R54", "R56", "R57"]},
+                {"id": "network",    "name": "Réseau",               "description": "[ANSSI R12] Ports en écoute, exposition réseau", "anssi_refs": ["R12"]},
+                {"id": "packages",   "name": "Gestion des paquets",  "description": "[ANSSI R58-R61] Paquets inutiles, dépôts de confiance, mises à jour", "anssi_refs": ["R58", "R59", "R61"]},
+                {"id": "pam",        "name": "Authentification PAM", "description": "[ANSSI R68-R70] PAM, hachage des mots de passe, bases distantes", "anssi_refs": ["R68", "R69", "R70"]},
+                {"id": "logging",    "name": "Journalisation",       "description": "[ANSSI R71-R74] syslog, auditd, service mail, intégrité fichiers", "anssi_refs": ["R71", "R72", "R73", "R74"]},
+                {"id": "pve",        "name": "Proxmox VE",           "description": "Hyperviseur : pveproxy TLS, pare-feu datacenter, tokens API, 2FA, isolation LXC, cluster corosync, dépôts de mise à jour", "anssi_refs": []},
             ],
             "macos_intel": [
                 {"id": "ssh",        "name": "SSH Configuration",  "description": "macOS Intel SSH hardening"},
